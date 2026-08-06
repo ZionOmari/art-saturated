@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Footer from '../components/Footer'
-import EventsSection from '../components/EventsSection'
 import ArtCarousel from '../components/ArtCarousel'
 import FloatingProductColumn from '../components/FloatingProductColumn'
-import { useAuth } from '../context/AuthContext'
 import { fetchAllProducts } from '../data/storage'
 
 function shuffle(arr) {
@@ -80,9 +78,6 @@ function FilledBtn({ children, onClick, fullWidth = false }) {
 
 export default function HomePage() {
   const navigate  = useNavigate()
-  const { user, profile } = useAuth()
-  const isCreator = profile?.accountType?.includes('creator')
-  const isPartner = profile?.partnerApplication === 'approved'
 
   const [localLegends,   setLocalLegends]   = useState([])
   const [randomProducts, setRandomProducts] = useState([])
@@ -117,7 +112,7 @@ export default function HomePage() {
             position: 'absolute', right: '20px', top: 0, bottom: 0,
             alignItems: 'flex-start', paddingTop: '80px', zIndex: 1,
           }}>
-            <FloatingProductColumn products={randomProducts} label="Preorder" duration={17} enigma />
+            <FloatingProductColumn products={randomProducts} label="New Arrivals" duration={17} />
           </div>
         )}
 
@@ -142,13 +137,8 @@ export default function HomePage() {
         </blockquote>
 
         <div className="flex items-center gap-4 flex-wrap">
-          {user && isCreator ? (
-            <FilledBtn onClick={() => navigate('/submit-art')}>List Your Art</FilledBtn>
-          ) : (
-            <FilledBtn onClick={() => navigate('/account?acctab=artist')}>Become a Creator</FilledBtn>
-          )}
-          <DarkHoverBtn onClick={() => navigate('/shop')}>Become a Collector</DarkHoverBtn>
-          <DarkHoverBtn onClick={() => navigate('/order/cd')}>CD Print Service</DarkHoverBtn>
+          <FilledBtn onClick={() => navigate('/shop')}>Browse the Shop</FilledBtn>
+          <DarkHoverBtn onClick={() => navigate('/consult')}>Book a Consultation</DarkHoverBtn>
         </div>
 
         {/* Mobile columns — shown below CTA buttons on small screens */}
@@ -158,7 +148,7 @@ export default function HomePage() {
               <FloatingProductColumn products={localLegends} label="Local Legends" duration={24} cardWidth={88} colHeight={260} />
             )}
             {randomProducts.length > 0 && (
-              <FloatingProductColumn products={randomProducts} label="Preorder" duration={17} cardWidth={88} colHeight={260} enigma />
+              <FloatingProductColumn products={randomProducts} label="New Arrivals" duration={17} cardWidth={88} colHeight={260} />
             )}
           </div>
         )}
@@ -168,86 +158,8 @@ export default function HomePage() {
       {/* ── Featured art slideshow ───────────────────────────── */}
       <ArtCarousel />
 
-      {/* ── Creator recruitment ───────────────────────────────── */}
-      <section className="border-b border-warm-gray-light">
-        <div className="max-w-4xl mx-auto px-6 py-20">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-14 items-start">
-
-            {/* Left: pitch */}
-            <div>
-              <p className="eyebrow mb-5">For Creators</p>
-              <h2 className="font-serif text-[clamp(1.6rem,4vw,2.4rem)] font-normal leading-tight mb-6">
-                List your work.<br />Build your audience.<br />Keep what you earn.
-              </h2>
-              <div className="font-mono text-[13px] text-warm-gray leading-relaxed flex flex-col gap-4">
-                <p>
-                  Art Saturated is a creator-first marketplace built in Fort Wayne for independent
-                  artists, painters, photographers, and makers. Upload your work, set your price,
-                  and we handle the storefront — so you can focus on making.
-                </p>
-                <p>
-                  Your first <strong className="text-ink">10 listings are completely free.</strong>{' '}
-                  No upfront cost, no gatekeeping. Hit your limit? Apply for the{' '}
-                  <strong className="text-ink">Art Saturated Partnership</strong> — unlimited
-                  listings, no listing fees, ever.
-                </p>
-              </div>
-
-              <div className="mt-8 flex flex-col gap-3">
-                {user && isCreator ? (
-                  <DarkHoverBtn onClick={() => navigate('/submit-art')}>Submit a Listing →</DarkHoverBtn>
-                ) : (
-                  <>
-                    <FilledBtn onClick={() => navigate('/account?acctab=artist')}>Create Your Account →</FilledBtn>
-                    {user && (
-                      <p className="font-mono text-[11px] text-warm-gray">
-                        Already signed in — enable creator mode in your account settings.
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Right: how it works */}
-            <div className="flex flex-col gap-4">
-              {[
-                {
-                  n: '01',
-                  title: 'Create an account',
-                  body: 'Sign up free. Enable creator mode in your account settings to unlock listings.',
-                },
-                {
-                  n: '02',
-                  title: 'Submit your work',
-                  body: 'Upload photos, set your price, add details. Your first 10 listings are on us.',
-                },
-                {
-                  n: '03',
-                  title: 'Get discovered',
-                  body: 'Your work goes live in the shop and your artist profile is added to the directory.',
-                },
-                {
-                  n: '04',
-                  title: 'Get paid',
-                  body: 'When something sells we coordinate pickup or shipping and send your payout.',
-                },
-              ].map(step => (
-                <div key={step.n} className="flex gap-4 items-start p-5 border border-warm-gray-light bg-cream">
-                  <span className="font-mono text-[11px] tracking-widest text-warm-gray flex-shrink-0 pt-0.5">{step.n}</span>
-                  <div>
-                    <p className="font-mono text-[12px] tracking-[0.08em] uppercase text-ink mb-1">{step.title}</p>
-                    <p className="font-mono text-[12px] text-warm-gray leading-relaxed">{step.body}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Events ───────────────────────────────────────────── */}
-      <EventsSection />
+      {/* Creator recruitment and Events sections retired Aug 2026 — the site is now
+          shop + consultations only. Their components remain under src/components. */}
 
       {/* ── Beta transparency ────────────────────────────────── */}
       <section className="max-w-4xl mx-auto px-6 pb-20">

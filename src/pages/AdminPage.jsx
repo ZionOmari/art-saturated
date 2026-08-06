@@ -3,7 +3,7 @@ import StylePicker from '../components/StylePicker'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../data/products'
-import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
+import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
 import CropModal   from '../components/CropModal'
 import AvailabilityManager from '../components/AvailabilityManager'
 import StudentsPanel from '../components/StudentsPanel'
@@ -84,6 +84,8 @@ const BLANK = {
   depositAmount:  '',
   crossListings:  [],   // [{ id, name, type }] — same album, other formats
   digitalUrl:     '',   // link to stream/buy digital version (Bandcamp, Spotify, etc.)
+  previewTracks:  [],   // [{ title, url }] — public preview clips, played on the product page
+  downloadPath:   '',   // Storage path of the paid download (digital listings only)
   isPrint:    false,
   isOriginal: false,
   unique:      false,
@@ -4156,6 +4158,7 @@ export default function AdminPage() {
   const [draftSaved, setDraftSaved]   = useState('')
   const [publishBusy,  setPublishBusy]  = useState(false)
   const [publishError, setPublishError] = useState('')
+  const [audioBusy,    setAudioBusy]    = useState(false)
   const [cropPending,  setCropPending]  = useState(null)  // { file, preview, title? }
   const [cropSlotIdx,  setCropSlotIdx]  = useState(0)
   const [photoSlots,   setPhotoSlots]   = useState([{ preview: null, url: null, uploading: false }])
@@ -5454,6 +5457,75 @@ export default function AdminPage() {
                       </div>
                     )
                   })()}
+                </div>
+
+                {/* Track previews — public clips played on the product page */}
+                <div className="flex flex-col gap-1">
+                  <label className="eyebrow">Track Previews (optional)</label>
+                  <p className="font-mono text-[11px] text-warm-gray mb-1">
+                    Public clips anyone can play on the listing. Upload short previews, not full tracks.
+                  </p>
+
+                  {(form.previewTracks || []).length > 0 && (
+                    <ul className="flex flex-col gap-2 mb-2" style={{ listStyle: 'none', padding: 0 }}>
+                      {form.previewTracks.map((t, i) => (
+                        <li key={i} className="flex items-center gap-2">
+                          <input
+                            value={t.title}
+                            onChange={e => setForm({
+                              ...form,
+                              previewTracks: form.previewTracks.map((x, j) =>
+                                j === i ? { ...x, title: e.target.value } : x),
+                            })}
+                            className="flex-1 border border-warm-gray-light bg-transparent px-3 py-2 font-mono text-[13px] text-ink focus:outline-none focus:border-ink"
+                            placeholder={`Track ${i + 1} title`}
+                          />
+                          <audio src={t.url} controls preload="none" style={{ height: 32, maxWidth: 180 }} />
+                          <button
+                            type="button"
+                            onClick={() => setForm({
+                              ...form,
+                              previewTracks: form.previewTracks.filter((_, j) => j !== i),
+                            })}
+                            className="font-mono text-[11px] px-2 py-1 border border-warm-gray-light text-warm-gray hover:text-ink"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    multiple
+                    disabled={audioBusy}
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (!files.length) return
+                      setAudioBusy(true)
+                      setPublishError('')
+                      try {
+                        const uploaded = []
+                        for (const file of files) {
+                          if (file.size > 20 * 1024 * 1024) {
+                            throw new Error(`"${file.name}" is over 20 MB — upload a shorter preview clip.`)
+                          }
+                          const url = await uploadProductAudio(file)
+                          uploaded.push({ title: file.name.replace(/\.[^.]+$/, ''), url })
+                        }
+                        setForm(f => ({ ...f, previewTracks: [...(f.previewTracks || []), ...uploaded] }))
+                      } catch (err) {
+                        setPublishError(err.message || 'Audio upload failed.')
+                      } finally {
+                        setAudioBusy(false)
+                        e.target.value = ''
+                      }
+                    }}
+                    className="font-mono text-[12px] text-warm-gray"
+                  />
+                  {audioBusy && <p className="font-mono text-[11px] text-earth">Uploading audio…</p>}
                 </div>
               </>
             )}

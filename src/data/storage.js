@@ -101,6 +101,17 @@ export async function uploadProductImage(file) {
   return getDownloadURL(snap.ref)
 }
 
+// ── Audio upload ─────────────────────────────────────────────────────────────
+// Preview clips for a product (an album listing, say). These live under the same
+// public `products/` prefix as images: a preview is meant to be heard by anyone
+// browsing the shop. Never put a full purchased track here — paid downloads go
+// to `releases/`, which is not publicly readable.
+export async function uploadProductAudio(file) {
+  const path = `products/audio/${Date.now()}_${file.name.replace(/\s+/g, '_')}`
+  const snap = await uploadBytes(ref(storage, path), file)
+  return getDownloadURL(snap.ref)
+}
+
 // ── Slug helper ───────────────────────────────────────────────────────────────
 export function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')

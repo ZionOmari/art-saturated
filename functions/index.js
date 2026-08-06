@@ -820,9 +820,49 @@ exports.onTeachingRatesUpdated = functions
 // doc. Emailing on create told customers their unpaid cart was confirmed.
 const PAID_STATUSES = ['paid', 'deposit_paid']
 
+// ── Digital delivery ─────────────────────────────────────────────────────────
+// A product with a `downloadPath` is a digital good. The file lives under
+// releases/ in Storage, which no client can read; buyers get a signed URL in
+// their confirmation email. Links are delivered by email rather than a download
+// button because this project's callable functions are unreachable (403) — see
+// the note on stripeWebhook.
+const DOWNLOAD_LINK_DAYS = 30
+
+async function downloadLinksFor(items = []) {
+  const db = admin.firestore()
+  const links = []
+  for (const item of items) {
+    if (!item.id) continue
+    const snap = await db.doc(`products/${item.id}`).get()
+    if (!snap.exists) continue
+    const { downloadPath, name } = snap.data()
+    if (!downloadPath) continue
+    try {
+      const [url] = await admin.storage().bucket().file(downloadPath).getSignedUrl({
+        action:  'read',
+        expires: Date.now() + DOWNLOAD_LINK_DAYS * 24 * 60 * 60 * 1000,
+      })
+      links.push({ name: item.name || name || 'Download', url })
+    } catch (err) {
+      // Signing needs iam.serviceAccountTokenCreator on the runtime account.
+      // Never fail the order over it — flag it so the file can be sent by hand.
+      console.error(`Signed URL failed for ${downloadPath}:`, err.message)
+      links.push({ name: item.name || name || 'Download', url: null })
+    }
+  }
+  return links
+}
+
 async function notifyOrderPaid(orderId, order) {
   const ref = `#${orderId.slice(-6).toUpperCase()}`
   const isDeposit = order.paymentStatus === 'deposit_paid'
+
+  const downloads = await downloadLinksFor(order.items).catch(err => {
+    console.error('downloadLinksFor failed:', err.message)
+    return []
+  })
+  const usable = downloads.filter(d => d.url)
+  const failed = downloads.filter(d => !d.url)
 
   await sendEmail(order.email,
     `Order Confirmed — Art Saturated ${ref}`,
@@ -832,11 +872,38 @@ async function notifyOrderPaid(orderId, order) {
       itemList(order.items),
       '',
       `Total: $${order.total}`,
-      ...(order.shippingMethod === 'pickup'
-        ? ["We'll let you know as soon as it's ready for pickup."]
-        : [`Estimated delivery: ${shippingWindow()}`, '', "We'll notify you when your order ships."]),
+      // A fully digital order has nothing to ship — don't promise delivery.
+      ...(usable.length && usable.length === (order.items || []).length
+        ? []
+        : order.shippingMethod === 'pickup'
+          ? ["We'll let you know as soon as it's ready for pickup."]
+          : [`Estimated delivery: ${shippingWindow()}`, '', "We'll notify you when your order ships."]),
+      ...(usable.length
+        ? ['', 'Your download links (good for 30 days):',
+           ...usable.map(d => `  ${d.name}\n  ${d.url}`),
+           '', 'Save the files somewhere safe — the links expire.']
+        : []),
+      ...(failed.length
+        ? ['', "One or more downloads couldn't be prepared automatically — we'll email them to you shortly."]
+        : []),
     ]),
   ).catch(e => console.error('Buyer confirmation email failed:', e.message))
+
+  if (failed.length) {
+    await sendEmail(OWNER_EMAIL,
+      `⚠ Download link failed — order ${ref}`,
+      [
+        'A paid order contains a digital item whose download link could not be generated.',
+        'The buyer has been told links are coming — send the files manually.',
+        '',
+        `Buyer: ${order.email}`,
+        ...failed.map(d => `  • ${d.name}`),
+        '',
+        'Likely cause: the functions service account lacks iam.serviceAccountTokenCreator,',
+        'which Storage needs to sign URLs.',
+      ].join('\n'),
+    ).catch(e => console.error('Download failure alert failed:', e.message))
+  }
 
   await sendEmail(OWNER_EMAIL,
     `New Order ${ref} — ${order.shippingMethod === 'pickup' ? 'Pickup' : 'Ship Required'}`,

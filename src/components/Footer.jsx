@@ -9,14 +9,10 @@ export default function Footer() {
 
       <nav className="flex gap-6 flex-wrap">
         {[
-          { label: 'Shop',      path: '/shop'     },
-          { label: 'Events',    path: '/events'   },
-          { label: 'Book',      path: '/book'     },
-          { label: 'Order CDs', path: '/order/cd' },
-          { label: 'Mystery',   path: '/mystery'  },
-          { label: 'Workshop',  path: '/workshop' },
-          { label: 'About',     path: '/about'    },
-          { label: 'Cart',      path: '/cart'     },
+          { label: 'Shop',          path: '/shop'    },
+          { label: 'Consultations', path: '/consult' },
+          { label: 'About',         path: '/about'   },
+          { label: 'Cart',          path: '/cart'    },
         ].map(({ label, path }) => (
           <button
             key={path}

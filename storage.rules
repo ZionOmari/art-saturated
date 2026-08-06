@@ -65,6 +65,15 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // ── Paid digital releases — NEVER publicly readable ───────────────────────
+    // Buyers never read this path directly. The generateDownloadLink function
+    // verifies the purchase and hands back a short-lived signed URL. Preview
+    // clips are a different thing entirely and live under products/audio/.
+    match /releases/{allPaths=**} {
+      allow read:  if isAdmin();
+      allow write: if isAdmin();
+    }
+
     // ── Deny everything else ──────────────────────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;

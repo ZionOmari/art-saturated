@@ -74,16 +74,8 @@ export default function ArtCarousel() {
       <div className="max-w-5xl mx-auto px-6 pt-14 pb-6 flex items-baseline justify-between flex-wrap gap-4">
         <div className="flex items-baseline gap-5">
           <h2 className="font-serif text-[1.5rem] font-normal">Featured Art</h2>
-          <span className="eyebrow">Recent submissions</span>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <button
-            onClick={() => navigate('/submit-art')}
-            className="font-mono text-[11px] tracking-[0.1em] uppercase transition-colors"
-            style={{ color: '#b97a30' }}
-          >
-            List yours →
-          </button>
           <button
             onClick={() => navigate('/shop?cat=Art')}
             className="font-mono text-[11px] tracking-[0.1em] uppercase text-warm-gray hover:text-ink transition-colors"

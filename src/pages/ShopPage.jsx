@@ -5,7 +5,6 @@ import Footer from '../components/Footer'
 import FloraRoots from '../components/FloraRoots'
 import DrawingCanvas from '../components/DrawingCanvas'
 import CommissionForm from '../components/CommissionForm'
-import EnigmaPreorderSpotlight from '../components/EnigmaPreorderSpotlight'
 import { CATEGORIES } from '../data/products'
 import { fetchShopProducts } from '../data/storage'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
@@ -26,9 +25,10 @@ export default function ShopPage() {
 
   useEffect(() => { fetchShopProducts().then(setProducts).catch(() => {}) }, [])
 
-  // Only surface categories that actually have listings. Physical Media stays
-  // visible regardless because it hosts the Enigma preorder spotlight.
-  const ALWAYS_SHOW = ['Physical Media']
+  // Only surface categories that actually have listings. (Physical Media used to
+  // be pinned open for the Enigma preorder spotlight; the album is a normal
+  // listing now, so it follows the same rule as everything else.)
+  const ALWAYS_SHOW = []
   const visibleCategories = CATEGORIES.filter(
     cat => ALWAYS_SHOW.includes(cat) || products.some(p => p.category === cat)
   )
@@ -378,8 +378,6 @@ export default function ShopPage() {
           const otherItems = filtered.filter(p => !p.localLegend)
           return (
             <>
-              {/* Pinned preorder spotlight — top of Physical Media, above Local Legends */}
-              <EnigmaPreorderSpotlight />
               {localItems.length > 0 && (
                 <>
                   <div className="max-w-4xl mx-auto px-6 pt-10 pb-6" style={{ borderBottom: '1px solid rgba(42,26,8,0.12)' }}>

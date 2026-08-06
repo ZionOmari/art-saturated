@@ -10,6 +10,7 @@ import { formatItemNumber } from '../data/storage'
 import { fetchReviews, addReview, calcAverageRating } from '../data/reviews'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
 import TreeOfLifeConfigurator from '../components/TreeOfLifeConfigurator'
+import AudioPreview from '../components/AudioPreview'
 import { useAuth } from '../context/AuthContext'
 import { checkoutDeposit } from '../lib/stripe'
 import Spinner from '../components/Spinner'
@@ -547,6 +548,9 @@ export default function ProductPage() {
                 {product.description}
               </p>
             </div>
+
+            {/* Track previews — renders nothing unless the product has audio */}
+            <AudioPreview tracks={product.previewTracks || []} />
 
             {/* One-of-a-kind notice */}
             {product.unique && (

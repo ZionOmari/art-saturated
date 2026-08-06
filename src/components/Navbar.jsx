@@ -57,12 +57,8 @@ export default function Navbar() {
         <nav aria-label="Main navigation" className="hidden md:flex items-center gap-8">
           <NavLink to="/home" className={linkClass}>Home</NavLink>
           <NavLink to="/shop" className={linkClass}>Shop</NavLink>
-          <NavLink to="/artists" className={linkClass}>Artists</NavLink>
+          <NavLink to="/consult" className={linkClass}>Consultations</NavLink>
           <NavLink to="/about" className={linkClass}>About</NavLink>
-          <NavLink to="/events" className={linkClass}>Events</NavLink>
-          <NavLink to="/magazine" className={linkClass}>Magazine</NavLink>
-          <NavLink to="/book" className={linkClass}>Book</NavLink>
-          <NavLink to="/workshop" className={linkClass}>Workshop</NavLink>
           {user ? (
             <NavLink to="/account" className={linkClass}>Account</NavLink>
           ) : (
@@ -145,12 +141,8 @@ export default function Navbar() {
         <nav aria-label="Mobile navigation" className="flex flex-col flex-1">
           <NavLink to="/home" className={drawerLinkClass}>Home</NavLink>
           <NavLink to="/shop" className={drawerLinkClass}>Shop</NavLink>
-          <NavLink to="/artists" className={drawerLinkClass}>Artists</NavLink>
+          <NavLink to="/consult" className={drawerLinkClass}>Consultations</NavLink>
           <NavLink to="/about" className={drawerLinkClass}>About</NavLink>
-          <NavLink to="/events" className={drawerLinkClass}>Events</NavLink>
-          <NavLink to="/magazine" className={drawerLinkClass}>Magazine</NavLink>
-          <NavLink to="/book" className={drawerLinkClass}>Book</NavLink>
-          <NavLink to="/workshop" className={drawerLinkClass}>Workshop</NavLink>
           {user ? (
             <NavLink to="/account" className={drawerLinkClass}>Account</NavLink>
           ) : (

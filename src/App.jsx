@@ -50,27 +50,29 @@ const ShopPage          = lazy(() => import('./pages/ShopPage'))
 const ProductPage       = lazy(() => import('./pages/ProductPage'))
 const CartPage          = lazy(() => import('./pages/CartPage'))
 const AboutPage         = lazy(() => import('./pages/AboutPage'))
-const BookingPage       = lazy(() => import('./pages/BookingPage'))
 const AdminPage         = lazy(() => import('./pages/AdminPage'))
 const AccountPage       = lazy(() => import('./pages/AccountPage'))
-const EventsPage        = lazy(() => import('./pages/EventsPage'))
-const ArtistsPage       = lazy(() => import('./pages/ArtistsPage'))
-const ArtistProfilePage = lazy(() => import('./pages/ArtistProfilePage'))
-const SubmitArtPage     = lazy(() => import('./pages/SubmitArtPage'))
 const PaymentSuccess    = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancelled  = lazy(() => import('./pages/PaymentCancelled'))
 const LoginPage         = lazy(() => import('./pages/LoginPage'))
-const QuoteRequestPage  = lazy(() => import('./pages/QuoteRequestPage'))
-const WishlistPage      = lazy(() => import('./pages/WishlistPage'))
-const EventDetailPage   = lazy(() => import('./pages/EventDetailPage'))
-const PastEventsPage    = lazy(() => import('./pages/PastEventsPage'))
-const BlogSubmitPage    = lazy(() => import('./pages/BlogSubmitPage'))
-const MysteryPage       = lazy(() => import('./pages/MysteryPage'))
-const PreorderPage      = lazy(() => import('./pages/PreorderPage'))
-const InterviewPage     = lazy(() => import('./pages/InterviewPage'))
-const MagazinePage      = lazy(() => import('./pages/MagazinePage'))
-const ArticlePage       = lazy(() => import('./pages/ArticlePage'))
-const WorkshopPage      = lazy(() => import('./pages/WorkshopPage'))
+const ConsultPage       = lazy(() => import('./pages/ConsultPage'))
+
+// ── Retired routes (August 2026) ─────────────────────────────────────────────
+// The site was narrowed to the shop plus 1:1 consultations. These pages still
+// exist under src/pages and are fully intact — they are simply not routed or
+// linked. To bring one back, re-add its lazy import and its <Route> below.
+//
+//   /book           BookingPage        superseded by /consult
+//   /workshop       WorkshopPage       superseded by /consult
+//   /events         EventsPage         also /events/past, /events/:eventId
+//   /artists        ArtistsPage        also /artists/:uid
+//   /magazine       MagazinePage       also /magazine/:slug, /blog-submit
+//   /interview/:t   InterviewPage      magazine artist interviews
+//   /submit-art     SubmitArtPage      artist marketplace intake
+//   /mystery        MysteryPage        mystery record / crate builder
+//   /preorder/:slug PreorderPage       removed: Enigma now sells as a product
+//   /order/cd       QuoteRequestPage   CD duplication quote builder
+//   /wishlist/:uid  WishlistPage       public wishlist sharing
 
 function SetupGate() {
   const { profile } = useAuth()
@@ -177,28 +179,25 @@ export default function App() {
           <Route path="/shop/:slug"  element={<ProductPage />} />
           <Route path="/cart"        element={<CartPage />}    />
           <Route path="/about"       element={<AboutPage />}   />
-          <Route path="/book"        element={<BookingPage />} />
+          <Route path="/consult"     element={<ConsultPage />} />
           <Route path="/admin"       element={<AdminPage />}   />
           <Route path="/account"     element={<AccountPage />} />
           <Route path="/account/profile" element={<AccountPage />} />
-          <Route path="/events"            element={<EventsPage />}       />
-          <Route path="/artists"           element={<ArtistsPage />}      />
-          <Route path="/artists/:uid"      element={<ArtistProfilePage />}/>
-          <Route path="/submit-art"        element={<SubmitArtPage />}    />
           <Route path="/payment-success"   element={<PaymentSuccess />}   />
           <Route path="/payment-cancelled" element={<PaymentCancelled />} />
           <Route path="/login"             element={<LoginPage />}        />
-          <Route path="/order/cd"          element={<QuoteRequestPage />} />
-          <Route path="/wishlist/:uid"    element={<WishlistPage />}     />
-          <Route path="/events/past"       element={<PastEventsPage />}   />
-          <Route path="/events/:eventId"  element={<EventDetailPage />}  />
-          <Route path="/blog-submit"      element={<BlogSubmitPage />}   />
-          <Route path="/magazine"         element={<MagazinePage />}     />
-          <Route path="/magazine/:slug"   element={<ArticlePage />}       />
-          <Route path="/mystery"          element={<MysteryPage />}      />
-          <Route path="/preorder/:slug"   element={<PreorderPage />}     />
-          <Route path="/interview/:token" element={<InterviewPage />}    />
-          <Route path="/workshop"         element={<WorkshopPage />}   />
+
+          {/* Retired paths → send visitors somewhere useful instead of a 404,
+              since these URLs may be in search results, links, or old emails. */}
+          <Route path="/book"      element={<Navigate to="/consult" replace />} />
+          <Route path="/workshop"  element={<Navigate to="/consult" replace />} />
+          <Route path="/preorder/:slug" element={<Navigate to="/shop" replace />} />
+          <Route path="/events/*"  element={<Navigate to="/home" replace />} />
+          <Route path="/artists/*" element={<Navigate to="/shop" replace />} />
+          <Route path="/magazine/*" element={<Navigate to="/home" replace />} />
+          <Route path="/mystery"   element={<Navigate to="/shop" replace />} />
+          <Route path="/submit-art" element={<Navigate to="/shop" replace />} />
+          <Route path="/order/cd"  element={<Navigate to="/shop" replace />} />
 
           <Route
             path="*"
