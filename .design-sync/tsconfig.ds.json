@@ -1,0 +1,13 @@
+{
+  "comment": "Design-sync only: remap firebase/* imports to an inert stub so the preview bundle initializes without a live backend. baseUrl is this dir (.design-sync); the converter's tsconfigPathsPlugin reads compilerOptions.paths.",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "firebase/app": ["./fb-stub.js"],
+      "firebase/auth": ["./fb-stub.js"],
+      "firebase/firestore": ["./fb-stub.js"],
+      "firebase/storage": ["./fb-stub.js"],
+      "firebase/functions": ["./fb-stub.js"]
+    }
+  }
+}

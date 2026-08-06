@@ -1,0 +1,40 @@
+# ── Secrets — MUST never be committed ──────────────────────────────
+.env
+.env.*
+!.env.example
+functions/.env
+functions/.env.*
+
+# ── Dependencies ───────────────────────────────────────────────────
+node_modules/
+functions/node_modules/
+
+# ── Build output ───────────────────────────────────────────────────
+dist/
+.firebase/
+
+# ── Logs & debug ───────────────────────────────────────────────────
+*-debug.log
+*.log
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+
+# ── Editor / OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Misc local artifacts ───────────────────────────────────────────
+"New folder/"
+
+# ── design-sync (claude.ai/design) — staged scripts, build output, caches ──
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+
+# ── Test / CI artifacts ────────────────────────────────────────────
+coverage/

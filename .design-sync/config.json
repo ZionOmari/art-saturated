@@ -1,0 +1,38 @@
+{
+  "pkg": "art-saturated",
+  "globalName": "ArtSaturated",
+  "shape": "package",
+  "entry": "./.design-sync/ds-entry.jsx",
+  "tsconfig": ".design-sync/tsconfig.ds.json",
+  "cssEntry": "./.design-sync/ds-compiled.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "componentSrcMap": {
+    "Spinner": "src/components/Spinner.jsx",
+    "Toast": "src/components/Toast.jsx",
+    "StylePicker": "src/components/StylePicker.jsx",
+    "EnigmaField": "src/components/EnigmaField.jsx",
+    "ProductCard": "src/components/ProductCard.jsx",
+    "ProductGrid": "src/components/ProductGrid.jsx",
+    "FloatingProductColumn": "src/components/FloatingProductColumn.jsx",
+    "EnigmaPreorderSpotlight": "src/components/EnigmaPreorderSpotlight.jsx",
+    "Footer": "src/components/Footer.jsx",
+    "ArtCarousel": "src/components/ArtCarousel.jsx",
+    "ProfileAvatar": "src/components/ProfileAvatar.jsx",
+    "Navbar": "src/components/Navbar.jsx"
+  },
+  "provider": {
+    "component": "MemoryRouter",
+    "inner": {
+      "component": "ThemeProvider",
+      "inner": {
+        "component": "CartProvider"
+      }
+    }
+  },
+  "overrides": {
+    "Navbar": { "cardMode": "single", "viewport": "1280x80" },
+    "EnigmaField": { "cardMode": "column" },
+    "StylePicker": { "cardMode": "column" },
+    "Toast": { "cardMode": "single", "primaryStory": "Visible" }
+  }
+}

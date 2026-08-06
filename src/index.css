@@ -1,0 +1,249 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Color tokens — RGB channel tuples so Tailwind opacity modifiers work ─── */
+  /* e.g. bg-cream/50 → rgb(236 230 217 / 0.5)                                  */
+  :root {
+    --color-cream:           236 230 217;   /* #ece6d9 */
+    --color-paper:           244 239 229;   /* #f4efe5 */
+    --color-ink:             26  18  8;     /* #1a1208 */
+    --color-warm-gray:       90  56  32;    /* #5a3820 */
+    --color-warm-gray-light: 196 180 160;   /* #c4b4a0 */
+    --color-earth:           185 122 48;    /* #b97a30 */
+    --color-earth-light:     210 165 100;   /* #d2a564 */
+    --color-offwhite:        242 235 224;   /* #f2ebe0 */
+
+    /* Background gradient stops (body::before) */
+    --grad-dark:  #3d2410;
+    --grad-mid:   #a0693a;
+    --grad-cream: #ece6d9;
+
+    /* Heading gradient stops */
+    --hgrad-dark:  #7a4820;
+    --hgrad-mid:   #b07030;
+    --hgrad-light: #d4a840;
+  }
+
+  /* ── Dark mode overrides ─────────────────────────────────────────────────── */
+  [data-theme="dark"] {
+    --color-cream:           22  16  10;    /* #16100a — deep warm dark */
+    --color-paper:           34  26  16;    /* #221a10 — slightly lighter surface */
+    --color-ink:             232 220 200;   /* #e8dcc8 — warm cream text */
+    --color-warm-gray:       175 148 108;   /* #af946c — warm muted secondary */
+    --color-warm-gray-light: 58  42  24;    /* #3a2a18 — dark warm border */
+    --color-earth:           185 122 48;    /* unchanged — earth gold */
+    --color-earth-light:     210 165 100;   /* unchanged */
+    --color-offwhite:        240 228 208;   /* #f0e4d0 */
+
+    --grad-dark:  #080504;
+    --grad-mid:   #3a1e0a;
+    --grad-cream: #18100a;
+
+    --hgrad-dark:  #8a5820;
+    --hgrad-mid:   #c08040;
+    --hgrad-light: #e0b850;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Smooth theme transitions */
+  body, body::before {
+    transition: background-color 0.25s ease;
+  }
+
+  /* Keyboard focus ring — visible for keyboard users, hidden for mouse/touch */
+  :focus-visible {
+    outline: 2px solid #a08060;
+    outline-offset: 3px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Respect users who request reduced motion — neutralize CSS animations,
+     transitions, and smooth scrolling. (JS rAF canvases are a separate follow-up.) */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  body {
+    @apply text-ink font-mono;
+    font-size: 14px;
+    line-height: 1.6;
+    background-color: rgb(var(--color-cream));
+  }
+
+  /* Fixed coffee-to-cream gradient — position driven by JS (decelerates over time) */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      135deg,
+      var(--grad-dark)  0%,
+      var(--grad-mid)   20%,
+      var(--grad-cream) 42%,
+      var(--grad-cream) 58%,
+      var(--grad-mid)   80%,
+      var(--grad-dark)  100%
+    );
+    background-size: 300% 300%;
+    background-position: var(--bg-x, 50%) var(--bg-y, 50%);
+  }
+
+  /* Hero page title — light cream/gold gradient */
+  .hero-title-main {
+    background: linear-gradient(
+      135deg,
+      #a06820 0%,
+      #c8922a 25%,
+      #f5f0e8 50%,
+      #c8922a 75%,
+      #a06820 100%
+    );
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: text-drift 14s linear infinite;
+  }
+
+  /* Floating product card columns — hero page side banners.
+     Simple from/to; ease-in cubic-bezier handles steady acceleration.
+     Mask on the container creates the feathered top/bottom fade.
+     JS drives animationDelay so speed can be modulated per-frame. */
+  @keyframes floatCard {
+    from { transform: translateY(-160px); }
+    to   { transform: translateY( 720px); }
+  }
+
+  /* Always paused — JS drives position via animationDelay only */
+  .float-card { animation-play-state: paused !important; }
+
+  /* Gradient text — slow drift animation */
+  @keyframes text-drift {
+    0%   { background-position: 0%   0%   }
+    25%  { background-position: 100% 0%   }
+    50%  { background-position: 100% 100% }
+    75%  { background-position: 0%   100% }
+    100% { background-position: 0%   0%   }
+  }
+
+  .gradient-text,
+  .hero-title,
+  h1, h2 {
+    background: linear-gradient(
+      135deg,
+      var(--hgrad-dark)  0%,
+      var(--hgrad-mid)   30%,
+      var(--hgrad-light) 55%,
+      var(--hgrad-mid)   75%,
+      var(--hgrad-dark)  100%
+    );
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: text-drift 18s linear infinite;
+  }
+
+  /* Secondary text — dark warm brown with cream halo for gradient bg legibility */
+  .text-warm-gray {
+    color: rgb(var(--color-warm-gray)) !important;
+    text-shadow: 0 0 12px rgba(236,230,217,0.75), 0 0 4px rgba(236,230,217,0.5);
+  }
+
+  /* In dark mode the halo flips — background is dark so no halo needed */
+  [data-theme="dark"] .text-warm-gray {
+    text-shadow: none;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-paper;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-warm-gray-light;
+  }
+}
+
+@layer components {
+  /* ── Buttons ── */
+  .btn-outline {
+    @apply inline-block font-mono text-[11px] tracking-[0.15em] uppercase
+           border border-ink px-8 py-3.5 cursor-pointer
+           transition-all duration-200 bg-transparent text-ink
+           hover:bg-ink hover:text-offwhite;
+  }
+
+  .btn-ghost {
+    @apply inline-block font-mono text-[11px] tracking-[0.15em] uppercase
+           border border-warm-gray-light px-8 py-3.5 cursor-pointer
+           transition-all duration-200 bg-transparent text-warm-gray
+           hover:border-ink hover:text-ink;
+  }
+
+  /* ── Filter pills ── */
+  .filter-pill {
+    @apply font-mono text-[10px] tracking-[0.12em] uppercase
+           border border-warm-gray-light px-5 py-2 cursor-pointer
+           transition-all duration-150 bg-transparent text-warm-gray
+           hover:border-ink hover:text-ink;
+  }
+
+  .filter-pill-active {
+    @apply bg-ink text-offwhite border-ink;
+  }
+
+  /* ── Dark coffee text box — body text on text-heavy pages ── */
+  .text-box-dark {
+    background: rgba(26, 18, 8, 0.85);
+    color: rgb(var(--color-offwhite));
+    padding: 16px 18px;
+    border-radius: 6px;
+  }
+  /* Inside dark boxes: warm-gray → cream, ink/strong → gold */
+  .text-box-dark .text-warm-gray {
+    color: rgb(var(--color-offwhite)) !important;
+    text-shadow: none;
+  }
+  .text-box-dark strong,
+  .text-box-dark .text-ink {
+    color: #d4b870 !important;
+  }
+
+  [data-theme="dark"] .text-box-dark {
+    background: rgba(8, 6, 4, 0.88);
+  }
+
+  /* ── Section eyebrow ── */
+  .eyebrow {
+    @apply font-mono text-[10px] tracking-[0.2em] uppercase text-earth;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    @apply border-0 border-t border-warm-gray-light;
+  }
+}
+
+@layer utilities {
+  .font-serif-italic {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+  }
+}

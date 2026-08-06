@@ -1,0 +1,35 @@
+{
+  "name": "art-saturated",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:emulator": "vite --mode emulator",
+    "emulators": "firebase emulators:start",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "firebase emulators:exec --only firestore \"vitest run\"",
+    "test:watch": "firebase emulators:exec --only firestore \"vitest\"",
+    "gen-sitemap": "node scripts/gen-sitemap.mjs",
+    "deploy": "vite build && node scripts/gen-sitemap.mjs && firebase deploy --only hosting",
+    "check-deps": "npm outdated; echo '--- functions ---'; cd functions && npm outdated"
+  },
+  "dependencies": {
+    "@stripe/stripe-js": "^8.11.0",
+    "@zxing/browser": "^0.2.0",
+    "firebase": "^12.14.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-image-crop": "^11.0.10",
+    "react-router-dom": "^6.30.4"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.10",
+    "vite": "^5.4.1",
+    "vitest": "^2.1.9"
+  }
+}

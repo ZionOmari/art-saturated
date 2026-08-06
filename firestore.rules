@@ -1,0 +1,280 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'zionomari@artsaturated.com';
+    }
+
+    match /users/{userId} {
+      // Public artist profiles are readable by anyone; all other user data requires auth
+      allow read:  if resource.data.artistPublic == true
+                   || (request.auth != null && (request.auth.uid == userId || isAdmin()));
+
+      // A brand-new user is never a partner and has no lifetime spend; a partner
+      // application may only START as 'pending'. Admin bypasses all of this.
+      allow create: if isAdmin() ||
+        (request.auth != null && request.auth.uid == userId
+          && !request.resource.data.keys().hasAny(['isPartner', 'lifetimeSpend'])
+          && (!('partnerApplication' in request.resource.data)
+              || request.resource.data.partnerApplication == 'pending'));
+
+      // The owner may edit their own profile but may NOT grant themselves partner
+      // status, write lifetimeSpend (computed server-side from orders), or self-approve
+      // a partner application. Those transitions belong to admin / Cloud Functions.
+      allow update: if isAdmin() ||
+        (request.auth != null && request.auth.uid == userId
+          && !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['isPartner', 'lifetimeSpend'])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['partnerApplication'])
+              || request.resource.data.partnerApplication == 'pending'));
+
+      allow delete: if isAdmin();
+    }
+    // Public wishlists — anyone can view; only the owner can write
+    match /wishlists/{userId} {
+      allow read:  if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Checkout requests: client writes, function processes, client reads result
+    match /checkoutRequests/{docId} {
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+    match /orders/{orderId} {
+      allow read: if request.auth != null &&
+        (resource.data.uid      == request.auth.uid ||
+         resource.data.sellerId == request.auth.uid ||
+         isAdmin());
+      // A buyer may only create their OWN order, and only in the unpaid/pending state.
+      // The price/total fields are still client-supplied here — the checkout Cloud
+      // Function is the authority that re-prices and flips paymentStatus to 'paid'.
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.paymentStatus == 'pending';
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    // Stripe payments that arrived with no matching order doc — written by the
+    // webhook (Admin SDK bypasses rules), read by the owner for reconciliation.
+    match /orphanedPayments/{sessionId} {
+      allow read, write: if isAdmin();
+    }
+    // Idempotency locks for settled Stripe sessions — Cloud Functions only.
+    match /stripeSessions/{sessionId} {
+      allow read:  if isAdmin();
+      allow write: if false;
+    }
+    // Art submissions — users read own + can flip feedbackRequested; admin reads/updates all
+    match /submissions/{submissionId} {
+      allow read: if request.auth != null &&
+        (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if request.auth != null;
+      allow update: if isAdmin() ||
+        // Artist can only flip feedbackRequested on their own rejected submission
+        (request.auth != null && resource.data.uid == request.auth.uid
+          && resource.data.status == 'rejected'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedbackRequested']));
+    }
+    // Products — public read, admin write
+    match /products/{productId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+
+      // Product reviews — public read; any signed-in user can create/edit their own
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if request.auth != null
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if request.auth != null
+          && resource.data.uid == request.auth.uid;
+      }
+    }
+    // Counters — admin write; any auth user can increment via transaction (item + submission numbers)
+    match /counters/{counterId} {
+      allow read, write: if request.auth != null;
+    }
+    // Commission requests — any signed-in user can create; artist + collector read their own; admin reads all
+    match /commissionRequests/{reqId} {
+      allow create: if request.auth != null;
+      allow read:   if request.auth != null &&
+        (resource.data.artistId     == request.auth.uid ||
+         resource.data.collectorUid == request.auth.uid ||
+         isAdmin());
+      allow update: if request.auth != null &&
+        (resource.data.artistId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+
+      // Message threads — artist and the logged-in collector can read + create
+      match /messages/{msgId} {
+        allow read: if request.auth != null &&
+          (get(/databases/$(database)/documents/commissionRequests/$(reqId)).data.artistId     == request.auth.uid ||
+           get(/databases/$(database)/documents/commissionRequests/$(reqId)).data.collectorUid == request.auth.uid ||
+           isAdmin());
+        allow create: if request.auth != null &&
+          request.resource.data.senderUid == request.auth.uid &&
+          (get(/databases/$(database)/documents/commissionRequests/$(reqId)).data.artistId     == request.auth.uid ||
+           get(/databases/$(database)/documents/commissionRequests/$(reqId)).data.collectorUid == request.auth.uid ||
+           isAdmin());
+      }
+    }
+    // Settings (shop hours, teaching rates, storeConfig) — public read, admin write
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    // Booking slots — public read for availability; anyone can create when booking;
+    // admin can update/delete (needed for cancel booking which sets booked: false)
+    match /slots/{slotId} {
+      allow read:   if true;
+      allow create: if true;
+      allow update: if request.resource.data.booked == true || isAdmin();
+      allow delete: if isAdmin();
+    }
+    // Blocked times — public read for getAvailableDates; admin writes
+    match /blockedTimes/{btId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+    // Bookings — anyone can create (no login needed); admin can read and cancel
+    match /bookings/{bookingId} {
+      allow create: if true;
+      allow read:   if isAdmin();
+      allow update: if isAdmin(); // needed for cancelBooking (sets status: 'cancelled')
+      allow delete: if false;
+    }
+    // Events calendar — public read for EventsPage, admin-only write
+    match /events/{eventId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+    // Event submissions — users submit and read own; admin reads/approves all
+    match /eventSubmissions/{subId} {
+      allow create: if request.auth != null;
+      allow read:   if request.auth != null &&
+        (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if isAdmin() ||
+        (request.auth != null && resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin() ||
+        (request.auth != null && resource.data.uid == request.auth.uid);
+    }
+    // Tasks — admin daily planner, scheduling dots on calendar
+    match /tasks/{taskId} {
+      allow read, write: if isAdmin();
+    }
+    // Schedule templates — recurring availability patterns (ScheduleManager)
+    match /scheduleTemplates/{templateId} {
+      allow read, write: if isAdmin();
+    }
+    // Monthly students — anyone can enroll (create), admin reads/manages
+    match /monthlyStudents/{studentId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+    // Students (admin-managed roster) — admin full access; student can read own record by email
+    match /students/{studentId} {
+      allow write: if isAdmin();
+      allow read:  if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
+    }
+    // Lesson notes — admin full access; students read/write their own
+    match /lessonNotes/{noteId} {
+      allow read:   if isAdmin() || (request.auth != null && resource.data.studentEmail == request.auth.token.email);
+      allow create: if isAdmin() || (request.auth != null && request.resource.data.studentEmail == request.auth.token.email);
+      allow update: if isAdmin() || (request.auth != null && resource.data.studentEmail == request.auth.token.email);
+      allow delete: if isAdmin();
+    }
+    // Blog / magazine submissions — anyone can submit; admin reviews.
+    // Approved articles are public (the magazine); pending/rejected stay private.
+    match /blogSubmissions/{subId} {
+      allow create: if true;
+      allow read:   if resource.data.status == 'approved'
+                    || isAdmin()
+                    || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+    // Event recap photos — anyone can submit; admin approves; public reads approved only;
+    // the event's original submitter can read all (pending + approved) for their own event
+    match /eventRecaps/{eventId}/photos/{photoId} {
+      allow create: if true;
+      allow read:   if resource.data.approved == true
+                    || isAdmin()
+                    || (request.auth != null
+                        && exists(/databases/$(database)/documents/events/$(eventId))
+                        && get(/databases/$(database)/documents/events/$(eventId)).data.submitterUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+    // Preorders — user reads own; admin reads/writes all
+    match /preorders/{preorderId} {
+      allow read:          if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create, update: if isAdmin();
+    }
+    // Album preorder listings — public read (the /preorder/:slug page), admin write
+    match /albumPreorders/{slug} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+    // Artist interviews — token IS the document ID; knowing the URL grants access.
+    // Admin can fully manage; anyone can read (to fill the form) and submit responses.
+    match /interviews/{token} {
+      allow read:   if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+        // Artist submitting their own responses — only these fields allowed
+        || request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['responses', 'status', 'respondedAt']);
+      allow delete: if isAdmin();
+    }
+
+    // Commission inquiry form (CommissionForm.jsx) — anyone can submit; admin reads/manages
+    match /commissions/{commId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Feedback / bug reports (FeedbackBubble.jsx) — anyone can submit; admin reads/manages
+    match /feedback/{fbId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // CD / vinyl quote requests (QuoteRequestPage.jsx) — anyone can submit; admin reads/manages
+    match /quoteRequests/{qrId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // AI request queue — admin writes a request, a Cloud Function fulfills it.
+    // All current AI ops are admin-only.
+    match /aiRequests/{reqId} {
+      allow create: if isAdmin();
+      allow read:   if isAdmin();
+      // updates are written by the Cloud Function via Admin SDK (bypasses rules)
+    }
+
+    // Private personal-collection archive — fully admin-only, never public.
+    match /archive/{itemId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Daily AI content ideas — written by a Cloud Function, admin reads.
+    match /contentIdeas/{dayId} {
+      allow read: if isAdmin();
+    }
+
+    // Workshop RSVPs — anyone can submit (guest or signed-in); admin reads/manages
+    match /workshopRsvps/{rsvpId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Workshop 1:1 bookings — written by Stripe webhook (Admin SDK); admin reads
+    match /workshopBookings/{bookingId} {
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

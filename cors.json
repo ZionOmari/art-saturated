@@ -1,0 +1,12 @@
+[
+  {
+    "origin": [
+      "https://art-saturated.web.app",
+      "https://artsaturated.com",
+      "http://localhost:5173"
+    ],
+    "method": ["GET"],
+    "responseHeader": ["Content-Type", "Access-Control-Allow-Origin"],
+    "maxAgeSeconds": 3600
+  }
+]
