@@ -122,6 +122,43 @@ describe('payment bookkeeping collections', () => {
   })
 })
 
+describe('artist membership', () => {
+  const ARTIST = { name: 'Painter', email: 'buyer@example.com', artistPublic: true }
+
+  it('stops an artist granting themselves a membership', async () => {
+    // The entire $7.99 paywall rests on this one rule.
+    await seed('users/buyer1', ARTIST)
+    await assertFails(updateDoc(doc(buyer(), 'users/buyer1'), { artistSubActive: true }))
+    await assertFails(updateDoc(doc(buyer(), 'users/buyer1'), { artistSubStatus: 'active' }))
+  })
+
+  it('still lets an artist edit their own ordinary profile fields', async () => {
+    await seed('users/buyer1', ARTIST)
+    await assertSucceeds(updateDoc(doc(buyer(), 'users/buyer1'), { artistBio: 'I paint.' }))
+  })
+
+  it('blocks uploading without an active membership', async () => {
+    await seed('users/buyer1', { ...ARTIST, artistSubActive: false })
+    await assertFails(setDoc(doc(buyer(), 'submissions/s1'), {
+      uid: 'buyer1', title: 'Untitled', status: 'pending_review',
+    }))
+  })
+
+  it('allows uploading with an active membership', async () => {
+    await seed('users/buyer1', { ...ARTIST, artistSubActive: true })
+    await assertSucceeds(setDoc(doc(buyer(), 'submissions/s2'), {
+      uid: 'buyer1', title: 'Untitled', status: 'pending_review',
+    }))
+  })
+
+  it('stops a member uploading work under someone else\'s uid', async () => {
+    await seed('users/buyer1', { ...ARTIST, artistSubActive: true })
+    await assertFails(setDoc(doc(buyer(), 'submissions/s3'), {
+      uid: 'someone-else', title: 'Untitled', status: 'pending_review',
+    }))
+  })
+})
+
 describe('checkoutRequests', () => {
   it('lets a user create and read only their own checkout request', async () => {
     await assertSucceeds(setDoc(doc(buyer(), 'checkoutRequests/c1'), {

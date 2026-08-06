@@ -69,6 +69,11 @@ export async function checkoutWorkshopDeposit({ customerEmail, bookingName }) {
   return waitForCheckoutUrl({ type: 'workshop_deposit', customerEmail, bookingName })
 }
 
+// Artist membership — $7.99/month, gates uploading new work.
+export async function checkoutArtistSubscription({ customerEmail }) {
+  return waitForCheckoutUrl({ type: 'artist_subscription', customerEmail })
+}
+
 export async function checkoutListingFee({ customerEmail, submissionId }) {
   const LISTING_FEE_LINK = import.meta.env.VITE_STRIPE_LISTING_FEE_LINK || null
   if (!LISTING_FEE_LINK) {

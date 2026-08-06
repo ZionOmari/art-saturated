@@ -19,6 +19,13 @@ const FROM_EMAIL  = process.env.GMAIL_USER || OWNER_EMAIL
 const STORE_NAME = 'Art Saturated'
 const CLIENT_URL = 'https://artsaturated.com'
 
+// Artist membership. Amount lives here so checkout, emails and the UI copy
+// can't drift apart; change it in one place.
+const ARTIST_PLAN = {
+  amount: 799,          // cents, per month
+  label:  '$7.99/month',
+}
+
 // ── Email transport — Gmail / Google Workspace SMTP via nodemailer ───────────
 // Auth uses an app password (GMAIL_APP_PASSWORD) on the GMAIL_USER mailbox.
 let _transporter = null
@@ -94,6 +101,49 @@ exports.onCheckoutRequestCreated = functions
       console.log('Stripe key present:', !!key, 'type:', type)
 
       const s = stripe()
+
+      // ── Artist upload subscription ($7.99/month) ────────────────────────────
+      // Uses inline price_data rather than a pre-made Stripe Price so the amount
+      // lives in one place (ARTIST_PLAN) and no dashboard setup is required.
+      if (type === 'artist_subscription') {
+        if (!data.uid) {
+          await safeUpdate({ status: 'error', error: 'You must be signed in to subscribe.' })
+          return
+        }
+
+        // Don't let someone pay twice for the same thing.
+        const userSnap = await admin.firestore().doc(`users/${data.uid}`).get()
+        if (userSnap.exists && userSnap.data().artistSubStatus === 'active') {
+          await safeUpdate({ status: 'error', error: 'You already have an active membership.' })
+          return
+        }
+
+        const session = await s.checkout.sessions.create({
+          mode: 'subscription',
+          line_items: [{
+            price_data: {
+              currency: 'usd',
+              unit_amount: ARTIST_PLAN.amount,
+              recurring: { interval: 'month' },
+              product_data: {
+                name: 'Art Saturated — Artist Membership',
+              },
+            },
+            quantity: 1,
+          }],
+          customer_email: data.customerEmail || undefined,
+          // client_reference_id survives onto the subscription's checkout session,
+          // and metadata is copied to the subscription itself so the reconciler
+          // can map a subscription back to a user without a lookup table.
+          client_reference_id: data.uid,
+          subscription_data: { metadata: { uid: data.uid, type: 'artist_subscription' } },
+          success_url: `${CLIENT_URL}/account?acctab=artist&subscribed=1`,
+          cancel_url:  `${CLIENT_URL}/account?acctab=artist`,
+          metadata: { uid: data.uid, type: 'artist_subscription' },
+        })
+        await safeUpdate({ status: 'ready', url: session.url })
+        return
+      }
 
       // ── Blog / magazine article submission fee ──────────────────────────────
       if (type === 'blog') {
@@ -404,7 +454,7 @@ async function handlePaidSession(session) {
     // Stripe Payment Links (and dashboard-created invoices) arrive with no
     // metadata.type, so every branch below skips them and the sale leaves no
     // trace on the site. Catch that case explicitly rather than silently 200-ing.
-    const KNOWN_TYPES = ['order', 'deposit', 'listing_fee', 'blog_submission', 'workshop_deposit', 'preorder']
+    const KNOWN_TYPES = ['order', 'deposit', 'listing_fee', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription']
 
     // The $1 art-listing fee goes through a Stripe Payment Link, which carries no
     // metadata — only client_reference_id. Infer the type so it isn't treated as
@@ -615,6 +665,38 @@ async function handlePaidSession(session) {
     }
 
     // ── Enigma album preorder paid ───────────────────────────────────────────
+    // ── Artist membership started ────────────────────────────────────────────
+    // The hourly sync would catch this eventually, but a new subscriber should
+    // get access within the reconciler's 5 minutes, not up to an hour.
+    if (effectiveType === 'artist_subscription') {
+      const subId = typeof session.subscription === 'string'
+        ? session.subscription
+        : session.subscription?.id
+      if (!subId) {
+        console.error(`Subscription session ${session.id} has no subscription id.`)
+        return
+      }
+      try {
+        const sub = await stripe().subscriptions.retrieve(subId)
+        await syncArtistSubscription(sub)
+      } catch (err) {
+        console.error(`Could not activate membership for session ${session.id}:`, err.message)
+        await sendEmail(OWNER_EMAIL,
+          `⚠ Artist membership paid but not activated — ${session.id}`,
+          [
+            'A $7.99 artist membership was paid but could not be activated automatically.',
+            '',
+            `Customer: ${session.customer_details?.email || session.customer_email || '—'}`,
+            `Subscription: ${subId}`,
+            '',
+            'The hourly membership sync should recover this. If it does not, grant',
+            'access manually by setting artistSubActive on their user document.',
+          ].join('\n'),
+        ).catch(() => {})
+      }
+      return
+    }
+
     if (effectiveType === 'preorder') {
       initSG()
       const customerEmail = session.customer_details?.email || session.customer_email || ''
@@ -707,6 +789,108 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
 
   return res.json({ received: true })
 })
+
+// ── Artist membership state ──────────────────────────────────────────────────
+// Subscription *lifecycle* (renewal, failed card, cancellation) only ever
+// arrives as webhook events, and this project's webhook is unreachable. So
+// access is driven by polling Stripe's subscription objects instead, which
+// carry current state rather than a change feed. syncArtistSubscription is the
+// single place that writes membership fields onto a user.
+//
+// Access rule: uploads require an active membership, but work already listed
+// stays live when a membership lapses — see canArtistUpload().
+async function syncArtistSubscription(sub) {
+  const uid = sub.metadata?.uid
+  if (!uid) {
+    console.warn(`Subscription ${sub.id} has no uid metadata — cannot map to a user.`)
+    return null
+  }
+
+  // 'trialing' and 'active' grant access. 'past_due' does not: the card already
+  // failed, and Stripe keeps retrying, so treat it as lapsed until it recovers.
+  const active = ['active', 'trialing'].includes(sub.status)
+
+  const patch = {
+    artistSubStatus:       sub.status,
+    artistSubActive:       active,
+    artistSubId:           sub.id,
+    artistSubCurrentEnd:   sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
+    artistSubCancelAtEnd:  !!sub.cancel_at_period_end,
+    artistSubSyncedAt:     FieldValue.serverTimestamp(),
+  }
+
+  const ref  = admin.firestore().doc(`users/${uid}`)
+  const snap = await ref.get()
+  if (!snap.exists) {
+    console.warn(`Subscription ${sub.id} references missing user ${uid}.`)
+    return null
+  }
+  const before = snap.data().artistSubActive === true
+
+  await ref.set(patch, { merge: true })
+
+  // Only email on an actual transition, never on every poll.
+  if (before !== active) {
+    const email = snap.data().email
+    if (email && active) {
+      await sendEmail(email, 'Artist Membership Active — Art Saturated',
+        fmtEmail(snap.data().name, [
+          `Your artist membership is active (${ARTIST_PLAN.label}).`,
+          '',
+          'You can now upload work to your artist profile and the shop.',
+          '',
+          `Start here: ${CLIENT_URL}/gallery-upload`,
+        ]),
+      ).catch(e => console.error('Membership start email failed:', e.message))
+    } else if (email && !active) {
+      await sendEmail(email, 'Artist Membership Ended — Art Saturated',
+        fmtEmail(snap.data().name, [
+          'Your artist membership has ended, so new uploads are paused.',
+          '',
+          'Everything you have already listed stays up and stays for sale —',
+          'nothing has been removed.',
+          '',
+          `Resubscribe any time: ${CLIENT_URL}/account?acctab=artist`,
+        ]),
+      ).catch(e => console.error('Membership end email failed:', e.message))
+    }
+    console.log(`Artist membership for ${uid}: ${before} → ${active} (${sub.status})`)
+  }
+
+  return { uid, active }
+}
+
+// ── Scheduled: keep artist memberships in sync with Stripe ───────────────────
+// Hourly is enough: a lapse costs at most an hour of extra upload access, and
+// polling every subscription every 5 minutes would be wasteful.
+exports.syncArtistMemberships = functions
+  .runWith({ timeoutSeconds: 300 })
+  .pubsub.schedule('every 60 minutes')
+  .onRun(async () => {
+    let seen = 0, changed = 0
+    try {
+      for await (const sub of stripe().subscriptions.list({
+        status: 'all',
+        limit: 100,
+        expand: ['data.metadata'],
+      })) {
+        if (sub.metadata?.type !== 'artist_subscription') continue
+        seen++
+        try {
+          const before = (await admin.firestore().doc(`users/${sub.metadata.uid}`).get()).data()?.artistSubActive
+          const result = await syncArtistSubscription(sub)
+          if (result && result.active !== before) changed++
+        } catch (err) {
+          console.error(`[memberships] ${sub.id} failed:`, err.message)
+        }
+      }
+    } catch (err) {
+      console.error('[memberships] Stripe list failed:', err.message)
+      return null
+    }
+    console.log(`[memberships] ${seen} subscription(s) checked, ${changed} changed.`)
+    return null
+  })
 
 // ── Scheduled: pull paid Stripe sessions (the webhook can't be reached) ───────
 // Stripe cannot POST to stripeWebhook — this project can't grant public invoker,

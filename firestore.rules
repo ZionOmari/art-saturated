@@ -22,10 +22,15 @@ service cloud.firestore {
       // The owner may edit their own profile but may NOT grant themselves partner
       // status, write lifetimeSpend (computed server-side from orders), or self-approve
       // a partner application. Those transitions belong to admin / Cloud Functions.
+      // artistSub* is membership state written only by the Stripe sync function.
+      // If a user could set artistSubActive they would grant themselves the
+      // $7.99 plan for free, so it is as protected as lifetimeSpend.
       allow update: if isAdmin() ||
         (request.auth != null && request.auth.uid == userId
           && !request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['isPartner', 'lifetimeSpend'])
+                .hasAny(['isPartner', 'lifetimeSpend',
+                         'artistSubActive', 'artistSubStatus', 'artistSubId',
+                         'artistSubCurrentEnd', 'artistSubCancelAtEnd', 'artistSubSyncedAt'])
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['partnerApplication'])
               || request.resource.data.partnerApplication == 'pending'));
 
@@ -70,7 +75,12 @@ service cloud.firestore {
     match /submissions/{submissionId} {
       allow read: if request.auth != null &&
         (resource.data.uid == request.auth.uid || isAdmin());
-      allow create: if request.auth != null;
+      // Uploading requires an active artist membership. Enforced here and not
+      // only in the UI, so the paywall cannot be bypassed by writing directly.
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && get(/databases/$(database)/documents/users/$(request.auth.uid))
+             .data.artistSubActive == true;
       allow update: if isAdmin() ||
         // Artist can only flip feedbackRequested on their own rejected submission
         (request.auth != null && resource.data.uid == request.auth.uid

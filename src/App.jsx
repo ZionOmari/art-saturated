@@ -56,6 +56,9 @@ const PaymentSuccess    = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancelled  = lazy(() => import('./pages/PaymentCancelled'))
 const LoginPage         = lazy(() => import('./pages/LoginPage'))
 const ConsultPage       = lazy(() => import('./pages/ConsultPage'))
+const ArtistsPage       = lazy(() => import('./pages/ArtistsPage'))
+const ArtistProfilePage = lazy(() => import('./pages/ArtistProfilePage'))
+const GalleryUploadPage = lazy(() => import('./pages/GalleryUploadPage'))
 
 // ── Retired routes (August 2026) ─────────────────────────────────────────────
 // The site was narrowed to the shop plus 1:1 consultations. These pages still
@@ -65,10 +68,12 @@ const ConsultPage       = lazy(() => import('./pages/ConsultPage'))
 //   /book           BookingPage        superseded by /consult
 //   /workshop       WorkshopPage       superseded by /consult
 //   /events         EventsPage         also /events/past, /events/:eventId
-//   /artists        ArtistsPage        also /artists/:uid
 //   /magazine       MagazinePage       also /magazine/:slug, /blog-submit
 //   /interview/:t   InterviewPage      magazine artist interviews
-//   /submit-art     SubmitArtPage      artist marketplace intake
+//   /submit-art     SubmitArtPage      replaced by /gallery-upload (membership)
+//
+// /artists and /artists/:uid were un-retired in the artist-membership work —
+// a paying member gets a public profile, so the directory is live again.
 //   /mystery        MysteryPage        mystery record / crate builder
 //   /preorder/:slug PreorderPage       removed: Enigma now sells as a product
 //   /order/cd       QuoteRequestPage   CD duplication quote builder
@@ -180,6 +185,9 @@ export default function App() {
           <Route path="/cart"        element={<CartPage />}    />
           <Route path="/about"       element={<AboutPage />}   />
           <Route path="/consult"     element={<ConsultPage />} />
+          <Route path="/artists"           element={<ArtistsPage />}       />
+          <Route path="/artists/:uid"      element={<ArtistProfilePage />} />
+          <Route path="/gallery-upload"    element={<GalleryUploadPage />} />
           <Route path="/admin"       element={<AdminPage />}   />
           <Route path="/account"     element={<AccountPage />} />
           <Route path="/account/profile" element={<AccountPage />} />
@@ -193,7 +201,6 @@ export default function App() {
           <Route path="/workshop"  element={<Navigate to="/consult" replace />} />
           <Route path="/preorder/:slug" element={<Navigate to="/shop" replace />} />
           <Route path="/events/*"  element={<Navigate to="/home" replace />} />
-          <Route path="/artists/*" element={<Navigate to="/shop" replace />} />
           <Route path="/magazine/*" element={<Navigate to="/home" replace />} />
           <Route path="/mystery"   element={<Navigate to="/shop" replace />} />
           <Route path="/submit-art" element={<Navigate to="/shop" replace />} />
