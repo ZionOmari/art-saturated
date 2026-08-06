@@ -11,15 +11,14 @@ import { dirname, join } from 'node:path'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ORIGIN = 'https://artsaturated.com'
 
+// Only live routes belong here. /artists, /magazine, /events, /book and
+// /submit-art were retired in Aug 2026 and now redirect — advertising them to
+// search engines would just feed crawlers into redirects.
 const CORE = [
-  ['/',           '1.0', 'weekly'],
-  ['/shop',       '0.9', 'daily'],
-  ['/artists',    '0.8', 'weekly'],
-  ['/magazine',   '0.8', 'weekly'],
-  ['/events',     '0.7', 'weekly'],
-  ['/about',      '0.7', 'monthly'],
-  ['/book',       '0.6', 'monthly'],
-  ['/submit-art', '0.6', 'monthly'],
+  ['/',         '1.0', 'weekly'],
+  ['/shop',     '0.9', 'daily'],
+  ['/consult',  '0.8', 'monthly'],
+  ['/about',    '0.7', 'monthly'],
 ]
 
 const xmlEscape = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
