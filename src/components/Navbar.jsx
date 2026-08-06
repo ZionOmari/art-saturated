@@ -57,6 +57,7 @@ export default function Navbar() {
         <nav aria-label="Main navigation" className="hidden md:flex items-center gap-8">
           <NavLink to="/home" className={linkClass}>Home</NavLink>
           <NavLink to="/shop" className={linkClass}>Shop</NavLink>
+          <NavLink to="/artists" className={linkClass}>Artists</NavLink>
           <NavLink to="/consult" className={linkClass}>Consultations</NavLink>
           <NavLink to="/about" className={linkClass}>About</NavLink>
           {user ? (
@@ -141,6 +142,7 @@ export default function Navbar() {
         <nav aria-label="Mobile navigation" className="flex flex-col flex-1">
           <NavLink to="/home" className={drawerLinkClass}>Home</NavLink>
           <NavLink to="/shop" className={drawerLinkClass}>Shop</NavLink>
+          <NavLink to="/artists" className={drawerLinkClass}>Artists</NavLink>
           <NavLink to="/consult" className={drawerLinkClass}>Consultations</NavLink>
           <NavLink to="/about" className={drawerLinkClass}>About</NavLink>
           {user ? (
