@@ -46,6 +46,13 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
       allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
     }
+    // Billing requests (cancel / resume / manage membership) — same pattern.
+    // The function reads the subscription id from the user's own document, so a
+    // forged request body cannot reach someone else's subscription.
+    match /billingRequests/{docId} {
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
+    }
     match /orders/{orderId} {
       allow read: if request.auth != null &&
         (resource.data.uid      == request.auth.uid ||

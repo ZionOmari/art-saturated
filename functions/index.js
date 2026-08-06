@@ -860,6 +860,70 @@ async function syncArtistSubscription(sub) {
   return { uid, active }
 }
 
+// ── Self-service billing (cancel / resume / manage) ──────────────────────────
+// Callable functions are unreachable in this project (403), so the client writes
+// a request document and reads the answer back off it — the same pattern as
+// checkoutRequests. Never trust the client for identity here: the subscription
+// id is read from the caller's own user document, never from the request.
+exports.onBillingRequestCreated = functions
+  .runWith({ timeoutSeconds: 60 })
+  .firestore
+  .document('billingRequests/{docId}')
+  .onCreate(async (snap) => {
+    const { uid, action } = snap.data() || {}
+
+    const done = (payload) => snap.ref.update(payload).catch(e => console.error('billing update failed:', e.message))
+
+    try {
+      if (!uid) return done({ status: 'error', error: 'Missing user.' })
+
+      const userSnap = await admin.firestore().doc(`users/${uid}`).get()
+      const subId = userSnap.exists ? userSnap.data().artistSubId : null
+      if (!subId) return done({ status: 'error', error: 'No membership found on this account.' })
+
+      const s = stripe()
+
+      if (action === 'cancel') {
+        // Cancel at period end, never immediately — they paid through the
+        // current month and should keep uploading until it runs out.
+        const sub = await s.subscriptions.update(subId, { cancel_at_period_end: true })
+        await syncArtistSubscription(sub)
+        return done({ status: 'done', cancelAtPeriodEnd: true })
+      }
+
+      if (action === 'resume') {
+        const sub = await s.subscriptions.update(subId, { cancel_at_period_end: false })
+        await syncArtistSubscription(sub)
+        return done({ status: 'done', cancelAtPeriodEnd: false })
+      }
+
+      if (action === 'portal') {
+        // Full self-service (card updates, invoices, cancellation). Requires the
+        // Customer Portal to be enabled once in the Stripe dashboard; if it is
+        // not, say so plainly rather than surfacing a raw Stripe error.
+        const sub = await s.subscriptions.retrieve(subId)
+        try {
+          const portal = await s.billingPortal.sessions.create({
+            customer: sub.customer,
+            return_url: `${CLIENT_URL}/account?acctab=artist`,
+          })
+          return done({ status: 'done', url: portal.url })
+        } catch (portalErr) {
+          console.error('Billing portal error:', portalErr.message)
+          return done({
+            status: 'error',
+            error: 'Billing management is not set up yet. Use Cancel Membership, or email us.',
+          })
+        }
+      }
+
+      return done({ status: 'error', error: 'Unknown billing action.' })
+    } catch (err) {
+      console.error('onBillingRequestCreated failed:', err.message)
+      return done({ status: 'error', error: err.message || 'Something went wrong.' })
+    }
+  })
+
 // ── Scheduled: keep artist memberships in sync with Stripe ───────────────────
 // Hourly is enough: a lapse costs at most an hour of extra upload access, and
 // polling every subscription every 5 minutes would be wasteful.

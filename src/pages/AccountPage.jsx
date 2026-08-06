@@ -12,6 +12,7 @@ import MessageThread from '../components/MessageThread'
 import { getStudentByEmail } from '../data/booking'
 import { getApprovedListingCount } from '../data/artists'
 import MysteryPreferencesPanel, { DEFAULT_MYSTERY_PREFS } from '../components/MysteryPreferencesPanel'
+import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
 
 // ── Shared input style ────────────────────────────────────────────────────────
 const inputStyle = {
@@ -493,7 +494,7 @@ function Profile() {
               {artSales.length === 0 ? (
                 <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-warm-gray))' }}>
                   No art sales yet.{' '}
-                  <button onClick={() => navigate('/submit-art')} style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))' }}>
+                  <button onClick={() => navigate('/gallery-upload')} style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))' }}>
                     Submit your art
                   </button>{' '}to get started.
                 </p>
@@ -738,7 +739,7 @@ function Profile() {
       {/* ── Submissions (creator) ──────────────────────────────── */}
       {tab === 'submissions' && (
         <div>
-          <button onClick={() => navigate('/submit-art')} className="btn-outline mb-8" style={{ display: 'inline-block' }}>
+          <button onClick={() => navigate('/gallery-upload')} className="btn-outline mb-8" style={{ display: 'inline-block' }}>
             + Submit New Art
           </button>
           {subsLoading && <div className="py-4 flex justify-center"><Spinner size={20} color="#3d2810" /></div>}
@@ -1061,58 +1062,8 @@ function Profile() {
 
           <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
 
-          {/* Partnership status */}
-          {(() => {
-            const isPartner        = profile?.isPartner === true
-            const applicationStatus = profile?.partnerApplication || null
-            const atLimit          = approvedCount !== null && approvedCount >= 10
-            const canApply         = atLimit && !isPartner && !applicationStatus
-            return (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f5f0e8', background: 'rgb(var(--color-ink))', padding: '3px 7px' }}>P</span>
-                  <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>Listing Status</p>
-                </div>
-
-                <div style={{ padding: '16px', border: '1px solid #e8e0d4', background: isPartner ? 'rgba(58,122,64,0.05)' : '#faf8f4', marginBottom: '20px' }}>
-                  {isPartner ? (
-                    <p style={{ fontFamily: 'monospace', fontSize: '13px', color: '#3a7a40', margin: 0 }}>✓ Art Saturated Partner — unlimited free listings</p>
-                  ) : approvedCount === null ? (
-                    <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#8a857d', margin: 0 }}>Loading…</p>
-                  ) : (
-                    <>
-                      <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', margin: '0 0 4px' }}>
-                        {approvedCount} / 10 free listings used
-                      </p>
-                      <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', margin: 0, lineHeight: 1.6 }}>
-                        {atLimit ? 'Free listings maxed out. Additional listings cost $1 each.' : `${10 - approvedCount} free listing${10 - approvedCount !== 1 ? 's' : ''} remaining.`}
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                {canApply && (
-                  <div style={{ padding: '16px', border: '1px solid #d4c9bb', background: '#faf8f4' }}>
-                    <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', margin: '0 0 6px' }}>Apply for Art Saturated Partnership</p>
-                    <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', margin: '0 0 14px', lineHeight: 1.6 }}>
-                      Partners get unlimited free listings. Applications are reviewed manually.
-                    </p>
-                    {applyDone ? (
-                      <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#3a7a40' }}>✓ Application submitted — we'll be in touch.</p>
-                    ) : (
-                      <button onClick={handleApplyForPartnership} disabled={applyBusy} className="btn-outline" style={{ display: 'inline-block' }}>
-                        {applyBusy ? 'Submitting…' : 'Apply for Partnership'}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {!isPartner && applicationStatus === 'pending' && !canApply && (
-                  <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#b97a30' }}>Partnership application pending review.</p>
-                )}
-              </div>
-            )
-          })()}
+          {/* Artist membership */}
+          <ArtistMembershipPanel profile={profile} />
 
           <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
 
@@ -1132,7 +1083,7 @@ function Profile() {
                 {[
                   ['10% commission', 'on listed sales through the shop'],
                   ['5% commission', 'if you drop off in-store'],
-                  ['$1 listing fee', 'per submission — covers review & listing'],
+                  ['$7.99/month', 'membership — unlimited uploads, no per-listing fee'],
                   ['48hr review', 'every submission is personally reviewed'],
                   ['0% on commissions', 'custom work is arranged directly — no platform cut'],
                 ].map(([term, desc]) => (
@@ -1144,8 +1095,8 @@ function Profile() {
               </div>
             </div>
 
-            <button onClick={() => navigate('/submit-art')} className="btn-outline" style={{ display: 'inline-block' }}>
-              Submit Art for Sale →
+            <button onClick={() => navigate('/gallery-upload')} className="btn-outline" style={{ display: 'inline-block' }}>
+              Upload Your Work →
             </button>
             <button
               onClick={() => setTab('submissions')}
