@@ -10,7 +10,6 @@ import Spinner from '../components/Spinner'
 import LessonNotebook from '../components/LessonNotebook'
 import MessageThread from '../components/MessageThread'
 import { getStudentByEmail } from '../data/booking'
-import { getApprovedListingCount } from '../data/artists'
 import MysteryPreferencesPanel, { DEFAULT_MYSTERY_PREFS } from '../components/MysteryPreferencesPanel'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
 
@@ -226,7 +225,7 @@ const statusColor = { pending: '#b97a30', ready: '#3a7a40', completed: 'rgb(var(
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 function Profile() {
-  const { user, profile, logOut, updateNotifyPrefs, updateDisplayName, updateArtistProfile, applyForPartnership, removeFromWishlist, fetchOrders, fetchSellerOrders, switchAccountType } = useAuth()
+  const { user, profile, logOut, updateNotifyPrefs, updateDisplayName, updateArtistProfile, removeFromWishlist, fetchOrders, fetchSellerOrders, switchAccountType } = useAuth()
   const navigate   = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const isOwner    = user?.email === 'zionomari@artsaturated.com'
@@ -264,9 +263,6 @@ function Profile() {
   const [bannerBusy,   setBannerBusy]   = useState(false)
   const bannerInputRef = useRef()
   const [artistSaved,  setArtistSaved]  = useState(false)
-  const [approvedCount,  setApprovedCount]  = useState(null)
-  const [applyBusy,      setApplyBusy]      = useState(false)
-  const [applyDone,      setApplyDone]      = useState(false)
   const [submissions,        setSubmissions]        = useState([])
   const [subsLoading,        setSubsLoading]        = useState(false)
   const [commissionRequests, setCommissionRequests] = useState([])
@@ -391,19 +387,6 @@ function Profile() {
       setBannerBusy(false)
       e.target.value = ''
     }
-  }
-
-  useEffect(() => {
-    if (tab === 'artist' && user && approvedCount === null) {
-      getApprovedListingCount(user.uid).then(setApprovedCount).catch(() => setApprovedCount(0))
-    }
-  }, [tab, user]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleApplyForPartnership() {
-    setApplyBusy(true)
-    try { await applyForPartnership(); setApplyDone(true) }
-    catch (err) { console.error(err) }
-    finally { setApplyBusy(false) }
   }
 
   async function handleSaveArtistProfile() {
@@ -751,7 +734,9 @@ function Profile() {
           {!subsLoading && submissions.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {submissions.map(sub => {
-                const statusLabel = { pending_payment: 'Awaiting Payment', pending_review: 'Under Review', approved: 'Live in Shop', rejected: 'Rejected' }[sub.status] || sub.status
+                // pending_payment only exists on submissions predating the $1 fee's
+                // removal. There is no payment to make any more, so don't ask for one.
+                const statusLabel = { pending_payment: 'Needs review — contact us', pending_review: 'Under Review', approved: 'Live in Shop', rejected: 'Rejected' }[sub.status] || sub.status
                 const sColor = { pending_payment: '#b97a30', pending_review: '#4a7a9b', approved: '#3a7a40', rejected: '#b94040' }[sub.status] || 'rgb(var(--color-warm-gray))'
                 const sbNum = sub.submissionNumber ? `SB-${String(sub.submissionNumber).padStart(4,'0')}` : null
                 return (

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Spinner from '../components/Spinner'
 import StylePicker from '../components/StylePicker'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -2519,7 +2520,10 @@ function SubmissionsPanel() {
     } finally { setBusy(false) }
   }
 
-  const statusColor = { pending_review: '#b97a30', approved: '#3a7a40', rejected: '#b94040' }
+  // pending_payment is a legacy state from the retired $1 listing fee. Nothing
+  // creates it any more, but submissions stuck in it predate the change and were
+  // unreachable here — no tab, no colour — so they are surfaced to be resolved.
+  const statusColor = { pending_review: '#b97a30', approved: '#3a7a40', rejected: '#b94040', pending_payment: '#6a6aaf' }
 
   const searchLC = search.toLowerCase()
   const filtered = submissions
@@ -2542,8 +2546,10 @@ function SubmissionsPanel() {
         />
       </div>
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        {['pending_review', 'approved', 'rejected'].map(s => {
+        {['pending_review', 'approved', 'rejected', 'pending_payment'].map(s => {
           const count = submissions.filter(x => x.status === s).length
+          // Legacy-only bucket — hide the tab entirely once it is empty.
+          if (s === 'pending_payment' && count === 0) return null
           const feedbackCount = s === 'rejected' ? submissions.filter(x => x.status === 'rejected' && x.feedbackRequested && !x.feedbackAnswered).length : 0
           return (
             <button key={s} onClick={() => setFilter(s)}
@@ -3041,9 +3047,6 @@ function StoreConfigPanel() {
       const d = snap.exists() ? snap.data() : {}
       setForm({
         commissionRate:       d.commissionRate       ?? 0.10,
-        listingFee:           d.listingFee           ?? 1.00,
-        listingFeeExpiry:     d.listingFeeExpiry     || '',
-        listingFeeAfterExpiry: d.listingFeeAfterExpiry ?? '',
         taxRate:              d.taxRate              ?? 0.07,
         tier0: d.shippingTiers?.[0] ?? 4.99,
         tier1: d.shippingTiers?.[1] ?? 7.99,
@@ -3055,7 +3058,7 @@ function StoreConfigPanel() {
         bundleDealPct:        d.bundleDeal?.discountPct ?? 10,
         blogSubmissionFee:    d.blogSubmissionFee        ?? 0,
       })
-    }).catch(() => setForm({ commissionRate: 0.10, localCommissionRate: 0.05, listingFee: 1.00, listingFeeExpiry: '', listingFeeAfterExpiry: '', taxRate: 0.07, tier0: 4.99, tier1: 7.99, tier2: 12.99, tier3: 18.99, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, blogSubmissionFee: 0 }))
+    }).catch(() => setForm({ commissionRate: 0.10, localCommissionRate: 0.05, taxRate: 0.07, tier0: 4.99, tier1: 7.99, tier2: 12.99, tier3: 18.99, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, blogSubmissionFee: 0 }))
   }, [])
 
   async function handleSave() {
@@ -3065,9 +3068,6 @@ function StoreConfigPanel() {
       await setDoc(doc(db, 'settings', 'storeConfig'), {
         commissionRate:        Number(form.commissionRate),
         localCommissionRate:   Number(form.localCommissionRate),
-        listingFee:            Number(form.listingFee),
-        listingFeeExpiry:      form.listingFeeExpiry || null,
-        listingFeeAfterExpiry: form.listingFeeAfterExpiry !== '' ? Number(form.listingFeeAfterExpiry) : null,
         taxRate:               Number(form.taxRate),
         shippingTiers:         [Number(form.tier0), Number(form.tier1), Number(form.tier2), Number(form.tier3)],
         bundleDeal: {
@@ -3123,66 +3123,6 @@ function StoreConfigPanel() {
         <p className="font-mono text-[11px] text-warm-gray mt-2">Applied when a product is flagged "Local Drop-off" in the product form.</p>
       </div>
 
-      {/* Listing Fee */}
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Submission Listing Fee</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className="font-mono text-[14px] text-warm-gray">$</span>
-          <input
-            type="number" min="0" step="0.01"
-            value={form.listingFee}
-            onChange={e => setForm(f => ({ ...f, listingFee: e.target.value }))}
-            style={{ ...inp, maxWidth: '100px' }}
-          />
-        </div>
-        <p className="font-mono text-[11px] text-warm-gray mt-2">Charged per art submission. Note: update your Stripe Payment Link to match.</p>
-      </div>
-
-      {/* Listing Fee Expiry / Volume Pricing */}
-      <div style={{ padding: '16px', border: '1px solid #a08060', background: 'rgba(237,232,224,0.3)' }}>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Volume Pricing (optional)</p>
-        <p className="font-mono text-[11px] text-warm-gray mb-3" style={{ lineHeight: '1.6' }}>
-          Set a date after which the listing fee increases. Useful for early-access pricing windows.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div>
-            <p className="font-mono text-[10px] text-warm-gray mb-1">Base fee expires on</p>
-            <input
-              type="date"
-              value={form.listingFeeExpiry}
-              onChange={e => setForm(f => ({ ...f, listingFeeExpiry: e.target.value }))}
-              style={{ ...inp, maxWidth: '180px' }}
-            />
-          </div>
-          <div>
-            <p className="font-mono text-[10px] text-warm-gray mb-1">Fee after expiry</p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span className="font-mono text-[14px] text-warm-gray">$</span>
-              <input
-                type="number" min="0" step="0.01"
-                placeholder="e.g. 3.00"
-                value={form.listingFeeAfterExpiry}
-                onChange={e => setForm(f => ({ ...f, listingFeeAfterExpiry: e.target.value }))}
-                style={{ ...inp, maxWidth: '100px' }}
-              />
-            </div>
-          </div>
-        </div>
-        {form.listingFeeExpiry && form.listingFeeAfterExpiry && (
-          <p className="font-mono text-[11px] mt-3" style={{ color: '#b97a30' }}>
-            After {form.listingFeeExpiry}: fee rises from ${Number(form.listingFee).toFixed(2)} → ${Number(form.listingFeeAfterExpiry).toFixed(2)}
-          </p>
-        )}
-        {(form.listingFeeExpiry || form.listingFeeAfterExpiry) && (
-          <button
-            type="button"
-            onClick={() => setForm(f => ({ ...f, listingFeeExpiry: '', listingFeeAfterExpiry: '' }))}
-            style={{ marginTop: '10px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', color: '#b94040', padding: 0 }}
-          >
-            Clear volume pricing
-          </button>
-        )}
-      </div>
 
       {/* Tax */}
       <div>
@@ -3725,103 +3665,6 @@ function PreordersPanel() {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Partnerships Panel ────────────────────────────────────────────────────────
-function PartnershipsPanel() {
-  const [applicants, setApplicants] = useState([])
-  const [partners,   setPartners]   = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [busy,       setBusy]       = useState(null)  // uid being actioned
-
-  useEffect(() => {
-    async function load() {
-      const snap = await getDocs(collection(db, 'users'))
-      const all  = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
-      setApplicants(all.filter(u => u.partnerApplication === 'pending'))
-      setPartners(all.filter(u => u.isPartner === true))
-      setLoading(false)
-    }
-    load().catch(() => setLoading(false))
-  }, [])
-
-  async function approve(u) {
-    setBusy(u.uid)
-    await updateDoc(doc(db, 'users', u.uid), { isPartner: true, partnerApplication: 'approved' })
-    setApplicants(prev => prev.filter(a => a.uid !== u.uid))
-    setPartners(prev => [...prev, { ...u, isPartner: true, partnerApplication: 'approved' }])
-    setBusy(null)
-  }
-
-  async function reject(u) {
-    setBusy(u.uid)
-    await updateDoc(doc(db, 'users', u.uid), { partnerApplication: 'rejected' })
-    setApplicants(prev => prev.filter(a => a.uid !== u.uid))
-    setBusy(null)
-  }
-
-  async function revoke(u) {
-    if (!window.confirm(`Remove partner status from ${u.name || u.email}?`)) return
-    setBusy(u.uid)
-    await updateDoc(doc(db, 'users', u.uid), { isPartner: false, partnerApplication: null })
-    setPartners(prev => prev.filter(p => p.uid !== u.uid))
-    setBusy(null)
-  }
-
-  if (loading) return <Spinner size={16} color="#3d2810" />
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
-
-      {/* Pending applications */}
-      <div>
-        <h3 className="font-serif text-[1.15rem] font-normal mb-5">
-          Pending Applications <span className="font-mono text-[12px] text-warm-gray">({applicants.length})</span>
-        </h3>
-        {applicants.length === 0 ? (
-          <p className="font-mono text-[13px] text-warm-gray">No pending applications.</p>
-        ) : applicants.map(u => (
-          <div key={u.uid} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 16px', border: '1px solid #e8e0d4', marginBottom: '10px', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: '180px' }}>
-              <p style={{ fontFamily: 'serif', fontSize: '1rem', color: '#1a1814', margin: '0 0 2px' }}>{u.name || '—'}</p>
-              <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', margin: 0 }}>{u.email}</p>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => approve(u)} disabled={busy === u.uid}
-                style={{ fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '6px 14px', background: '#3a7a40', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy === u.uid ? 0.5 : 1 }}>
-                Approve
-              </button>
-              <button onClick={() => reject(u)} disabled={busy === u.uid}
-                style={{ fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '6px 14px', background: 'transparent', color: '#b94040', border: '1px solid #b94040', cursor: 'pointer', opacity: busy === u.uid ? 0.5 : 1 }}>
-                Reject
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Current partners */}
-      <div>
-        <h3 className="font-serif text-[1.15rem] font-normal mb-5">
-          Current Partners <span className="font-mono text-[12px] text-warm-gray">({partners.length})</span>
-        </h3>
-        {partners.length === 0 ? (
-          <p className="font-mono text-[13px] text-warm-gray">No partners yet.</p>
-        ) : partners.map(u => (
-          <div key={u.uid} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 16px', border: '1px solid #e8e0d4', marginBottom: '10px', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: '180px' }}>
-              <p style={{ fontFamily: 'serif', fontSize: '1rem', color: '#1a1814', margin: '0 0 2px' }}>{u.name || '—'}</p>
-              <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', margin: 0 }}>{u.email}</p>
-            </div>
-            <button onClick={() => revoke(u)} disabled={busy === u.uid}
-              style={{ fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '6px 14px', background: 'transparent', color: '#b94040', border: '1px solid #d4c9bb', cursor: 'pointer', opacity: busy === u.uid ? 0.5 : 1 }}>
-              Revoke
-            </button>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -5812,7 +5655,6 @@ export default function AdminPage() {
         {tab === 'config' && <StoreConfigPanel />}
 
         {/* Partnerships tab */}
-        {tab === 'partnerships' && <PartnershipsPanel />}
 
         {/* Preorders tab — album + product preorders merged */}
         {tab === 'preorders' && (

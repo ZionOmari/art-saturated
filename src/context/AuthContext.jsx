@@ -152,12 +152,6 @@ export function AuthProvider({ children }) {
     setProfile(prev => ({ ...prev, ...updates }))
   }
 
-  async function applyForPartnership() {
-    if (!user) return
-    await setDoc(doc(db, 'users', user.uid), { partnerApplication: 'pending' }, { merge: true })
-    setProfile(prev => ({ ...prev, partnerApplication: 'pending' }))
-  }
-
   // ── Wishlist ──────────────────────────────────────────────────────────────
   async function addToWishlist(product) {
     if (!user) return
@@ -243,7 +237,6 @@ export function AuthProvider({ children }) {
       user, profile, setProfile, loading,
       signUp, signIn, signInWithGoogle, logOut,
       updateNotifyPrefs, updateDisplayName, updateArtistProfile, switchAccountType, setAccountTypes, completeProfileSetup,
-      applyForPartnership,
       addToWishlist, removeFromWishlist, inWishlist,
       placeOrder, fetchOrders, fetchSellerOrders,
     }}>

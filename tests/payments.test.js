@@ -39,7 +39,7 @@ async function wipe(...names) {
 beforeEach(async () => {
   sentMail.length = 0
   stripeLineItems.length = 0
-  await wipe('orders', 'products', 'stripeSessions', 'orphanedPayments')
+  await wipe('orders', 'products', 'stripeSessions', 'orphanedPayments', 'submissions', 'blogSubmissions')
 })
 
 // Minimal shape of a Stripe Checkout Session as handlePaidSession reads it.
@@ -167,16 +167,40 @@ describe('handlePaidSession — settlement', () => {
     expect(alert.to).toBe('zionomari@artsaturated.com')
   })
 
-  it('resolves a listing fee from client_reference_id when metadata is absent', async () => {
-    // Payment Links carry no metadata.type — this is why paid listing fees never
-    // moved a submission into the review queue.
+  it('treats a payment through the retired $1 listing-fee link as an orphan', async () => {
+    // The $1 art-listing fee is gone. A payment arriving through the old Payment
+    // Link must NOT quietly mark a submission paid — it has to surface so the
+    // shop can refund it. This pins that contract: re-adding 'listing_fee' to
+    // KNOWN_TYPES without a settlement branch would silently swallow the money.
     await db.doc('submissions/sub1').set({ uid: 'u1', title: 'Art', status: 'pending_payment' })
 
-    await handlePaidSession(session({ metadata: {}, client_reference_id: 'sub1' }))
+    const s = session({
+      metadata: {},
+      client_reference_id: 'sub1',
+      payment_link: 'plink_retired',
+      amount_total: 100,
+    })
+    await handlePaidSession(s)
 
     const sub = (await db.doc('submissions/sub1').get()).data()
-    expect(sub.listingFeePaid).toBe(true)
-    expect(sub.status).toBe('pending_review')
+    expect(sub.status).toBe('pending_payment')      // untouched
+    expect(sub.listingFeePaid).toBeUndefined()
+
+    const orphan = (await db.doc(`orphanedPayments/${s.id}`).get()).data()
+    expect(orphan).toBeTruthy()
+    expect(orphan.amount).toBe(1)
+    expect(sentMail.some(m => m.to === 'zionomari@artsaturated.com' && m.subject.includes('outside the shop'))).toBe(true)
+  })
+
+  it('still resolves a magazine article fee from client_reference_id', async () => {
+    // The blog fee shares the inference path and must keep working.
+    await db.doc('blogSubmissions/blog1').set({ title: 'Piece', status: 'pending_payment' })
+
+    await handlePaidSession(session({ metadata: {}, client_reference_id: 'blog1' }))
+
+    const blog = (await db.doc('blogSubmissions/blog1').get()).data()
+    expect(blog.feePaid).toBe(true)
+    expect(blog.status).toBe('pending_review')
     expect((await db.collection('orphanedPayments').get()).size).toBe(0)
   })
 })

@@ -152,7 +152,6 @@ export default function GalleryUploadPage() {
           imageURL:     imageURLs[0],
           imageURLs,
           source:       'gallery-upload',
-          listingFeePaid: true,   // membership replaces the per-listing fee
           status:       'pending_review',
           agreedToTerms: true,
           createdAt:    serverTimestamp(),

@@ -454,17 +454,21 @@ async function handlePaidSession(session) {
     // Stripe Payment Links (and dashboard-created invoices) arrive with no
     // metadata.type, so every branch below skips them and the sale leaves no
     // trace on the site. Catch that case explicitly rather than silently 200-ing.
-    const KNOWN_TYPES = ['order', 'deposit', 'listing_fee', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription']
+    const KNOWN_TYPES = ['order', 'deposit', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription']
 
-    // The $1 art-listing fee goes through a Stripe Payment Link, which carries no
-    // metadata — only client_reference_id. Infer the type so it isn't treated as
-    // an orphan (this is why paid listing fees never flipped to pending_review).
+    // The magazine article fee still goes through a Stripe Payment Link, which
+    // carries no metadata — only client_reference_id. Infer the type so it isn't
+    // treated as an orphan.
+    //
+    // The $1 art-listing fee was retired in August 2026. It is deliberately NOT
+    // inferred any more: a payment arriving through the old (now deactivated)
+    // link falls through to the orphan handler, which records it and emails the
+    // shop — far better than silently marking a submission paid for a fee that
+    // no longer exists.
     let effectiveType = meta.type
     if (!KNOWN_TYPES.includes(effectiveType) && session.client_reference_id) {
       const refId = session.client_reference_id
-      if ((await db.doc(`submissions/${refId}`).get()).exists) {
-        effectiveType = 'listing_fee'
-      } else if ((await db.doc(`blogSubmissions/${refId}`).get()).exists) {
+      if ((await db.doc(`blogSubmissions/${refId}`).get()).exists) {
         effectiveType = 'blog_submission'
       }
     }
@@ -590,20 +594,6 @@ async function handlePaidSession(session) {
         stripeSessionId: session.id,
         depositPaidAt: FieldValue.serverTimestamp(),
       })
-    }
-
-    // ── Listing fee paid ────────────────────────────────────────────────────
-    // submissionId comes from metadata (Checkout Session) or client_reference_id (Payment Link)
-    if (effectiveType === 'listing_fee') {
-      const submissionId = meta.submissionId || session.client_reference_id
-      if (submissionId) {
-        await db.doc(`submissions/${submissionId}`).update({
-          listingFeePaid: true,
-          stripeSessionId: session.id,
-          paidAt: FieldValue.serverTimestamp(),
-          status: 'pending_review',
-        })
-      }
     }
 
     // ── Blog submission fee paid ─────────────────────────────────────────────

@@ -11,28 +11,27 @@ service cloud.firestore {
       allow read:  if resource.data.artistPublic == true
                    || (request.auth != null && (request.auth.uid == userId || isAdmin()));
 
-      // A brand-new user is never a partner and has no lifetime spend; a partner
-      // application may only START as 'pending'. Admin bypasses all of this.
+      // Fields a user may never write on themselves. Membership state comes from
+      // the Stripe sync function, lifetimeSpend is computed from orders, and
+      // isPartner/partnerApplication are retired but kept locked so a stale value
+      // on a legacy document can never be forged back into meaning something.
+      // A brand-new account must not be born holding any of them: the create rule
+      // used to omit artistSubActive, which let a new user grant themselves the
+      // $7.99 plan for free.
       allow create: if isAdmin() ||
         (request.auth != null && request.auth.uid == userId
-          && !request.resource.data.keys().hasAny(['isPartner', 'lifetimeSpend'])
-          && (!('partnerApplication' in request.resource.data)
-              || request.resource.data.partnerApplication == 'pending'));
+          && !request.resource.data.keys().hasAny([
+               'isPartner', 'partnerApplication', 'lifetimeSpend',
+               'artistSubActive', 'artistSubStatus', 'artistSubId',
+               'artistSubCurrentEnd', 'artistSubCancelAtEnd', 'artistSubSyncedAt']));
 
-      // The owner may edit their own profile but may NOT grant themselves partner
-      // status, write lifetimeSpend (computed server-side from orders), or self-approve
-      // a partner application. Those transitions belong to admin / Cloud Functions.
-      // artistSub* is membership state written only by the Stripe sync function.
-      // If a user could set artistSubActive they would grant themselves the
-      // $7.99 plan for free, so it is as protected as lifetimeSpend.
       allow update: if isAdmin() ||
         (request.auth != null && request.auth.uid == userId
           && !request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['isPartner', 'lifetimeSpend',
-                         'artistSubActive', 'artistSubStatus', 'artistSubId',
-                         'artistSubCurrentEnd', 'artistSubCancelAtEnd', 'artistSubSyncedAt'])
-          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['partnerApplication'])
-              || request.resource.data.partnerApplication == 'pending'));
+                .hasAny([
+                  'isPartner', 'partnerApplication', 'lifetimeSpend',
+                  'artistSubActive', 'artistSubStatus', 'artistSubId',
+                  'artistSubCurrentEnd', 'artistSubCancelAtEnd', 'artistSubSyncedAt']));
 
       allow delete: if isAdmin();
     }

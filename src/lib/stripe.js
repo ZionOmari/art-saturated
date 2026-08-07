@@ -74,14 +74,6 @@ export async function checkoutArtistSubscription({ customerEmail }) {
   return waitForCheckoutUrl({ type: 'artist_subscription', customerEmail })
 }
 
-export async function checkoutListingFee({ customerEmail, submissionId }) {
-  const LISTING_FEE_LINK = import.meta.env.VITE_STRIPE_LISTING_FEE_LINK || null
-  if (!LISTING_FEE_LINK) {
-    console.warn('Stripe Payment Link not configured — skipping listing fee')
-    return
-  }
-  const url = new URL(LISTING_FEE_LINK)
-  url.searchParams.set('prefilled_email', customerEmail)
-  url.searchParams.set('client_reference_id', submissionId)
-  window.location.href = url.toString()
-}
+// The $1 per-listing fee was retired in August 2026 — the artist membership
+// above replaces it. checkoutListingFee() and VITE_STRIPE_LISTING_FEE_LINK are
+// gone with it; the Stripe Payment Link behind them has been deactivated.

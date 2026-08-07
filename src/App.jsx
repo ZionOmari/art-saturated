@@ -70,7 +70,7 @@ const GalleryUploadPage = lazy(() => import('./pages/GalleryUploadPage'))
 //   /events         EventsPage         also /events/past, /events/:eventId
 //   /magazine       MagazinePage       also /magazine/:slug, /blog-submit
 //   /interview/:t   InterviewPage      magazine artist interviews
-//   /submit-art     SubmitArtPage      replaced by /gallery-upload (membership)
+//   /submit-art     (page deleted)     replaced by /gallery-upload (membership)
 //
 // /artists and /artists/:uid were un-retired in the artist-membership work —
 // a paying member gets a public profile, so the directory is live again.

@@ -132,6 +132,21 @@ describe('artist membership', () => {
     await assertFails(updateDoc(doc(buyer(), 'users/buyer1'), { artistSubStatus: 'active' }))
   })
 
+  it('stops a new user creating themselves an active membership', async () => {
+    // The update rule blocked this; the create rule did not. A brand-new account
+    // could be born with artistSubActive: true and upload free forever.
+    await assertFails(setDoc(doc(buyer(), 'users/buyer1'), {
+      ...ARTIST, artistSubActive: true,
+    }))
+    await assertFails(setDoc(doc(buyer(), 'users/buyer1'), {
+      ...ARTIST, artistSubStatus: 'active', artistSubId: 'sub_forged',
+    }))
+  })
+
+  it('still lets a new user create an ordinary profile', async () => {
+    await assertSucceeds(setDoc(doc(buyer(), 'users/buyer1'), ARTIST))
+  })
+
   it('still lets an artist edit their own ordinary profile fields', async () => {
     await seed('users/buyer1', ARTIST)
     await assertSucceeds(updateDoc(doc(buyer(), 'users/buyer1'), { artistBio: 'I paint.' }))

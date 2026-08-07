@@ -1,4 +1,4 @@
-import { collection, getDocs, getDoc, doc, query, where, getCountFromServer } from 'firebase/firestore'
+import { collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
 /** All users who have opted their profile into the public directory */
@@ -11,20 +11,6 @@ export async function getPublicArtists() {
 export async function getArtistProfile(uid) {
   const snap = await getDoc(doc(db, 'users', uid))
   return snap.exists() ? { uid: snap.id, ...snap.data() } : null
-}
-
-/** Count of approved submissions for one artist (used for listing quota) */
-export async function getApprovedListingCount(uid) {
-  try {
-    const snap = await getCountFromServer(
-      query(collection(db, 'submissions'), where('uid', '==', uid), where('status', '==', 'approved'))
-    )
-    return snap.data().count
-  } catch {
-    // fallback if getCountFromServer not available
-    const snap = await getDocs(query(collection(db, 'submissions'), where('uid', '==', uid), where('status', '==', 'approved')))
-    return snap.size
-  }
 }
 
 /** All approved submissions for one artist, newest first.
