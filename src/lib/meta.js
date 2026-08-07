@@ -23,8 +23,19 @@ function absolutize(url) {
 // index.html ships a single hard-coded canonical pointing at the homepage. Left
 // alone it tells Google every product, artist and page is a duplicate of "/",
 // which is the strongest de-duplication signal there is — so keep it in step
-// with the route. Query strings and hashes are stripped: /shop?cat=Art is the
-// same page as /shop as far as indexing is concerned.
+// with the route. Query strings and hashes are ALWAYS stripped here, regardless
+// of what a caller passes (some pass window.location.href): /shop?cat=Art is the
+// same page as /shop as far as indexing is concerned, so they must share one
+// canonical or the filtered views compete with each other in search.
+function stripToCanonical(url) {
+  try {
+    const u = new URL(url, SITE_ORIGIN)
+    return u.origin + u.pathname
+  } catch {
+    return url
+  }
+}
+
 function setCanonical(href) {
   let el = document.querySelector('link[rel="canonical"]')
   if (!el) {
@@ -32,7 +43,7 @@ function setCanonical(href) {
     el.setAttribute('rel', 'canonical')
     document.head.appendChild(el)
   }
-  el.setAttribute('href', href)
+  el.setAttribute('href', stripToCanonical(href))
 }
 
 function setMeta(property, content) {
