@@ -224,7 +224,9 @@ export function AuthProvider({ children }) {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }))
   }
 
-  // Orders where the current user is the seller (art sales dashboard)
+  // Orders where the current user is the seller (art sales dashboard).
+  // Needs the composite index orders(sellerId, createdAt) — without it this
+  // rejects with FAILED_PRECONDITION and the dashboard silently shows nothing.
   async function fetchSellerOrders() {
     if (!user) return []
     const q    = query(collection(db, 'orders'), where('sellerId', '==', user.uid), orderBy('createdAt', 'desc'))

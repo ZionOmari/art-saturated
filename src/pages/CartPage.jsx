@@ -110,7 +110,10 @@ export default function CartPage() {
   const orderTotal   = cartTotal + shippingCost + taxAmount - bundleDiscount
 
   async function handleCheckout(chosenMethod) {
-    if (!user) { navigate('/account'); return }
+    // Send them to sign-in with a return path, not to /account — landing on the
+    // profile page stranded the buyer away from the cart and lost the shipping
+    // address they had just typed.
+    if (!user) { navigate('/login', { state: { from: '/cart' } }); return }
 
     // Validate shipping address for ship orders
     if (chosenMethod === 'ship') {
@@ -139,7 +142,10 @@ export default function CartPage() {
         shippingMethod: chosenMethod,
         bundleDiscount,
       })
-      clearCart()
+      // Deliberately NOT clearing the cart here. checkoutCart redirects to
+      // Stripe, and clearing at redirect time emptied the cart of anyone who
+      // reached Stripe and backed out — they returned to an empty cart and had
+      // to start over. PaymentSuccess clears it once payment actually lands.
     } catch (err) {
       const detail = err?.details || err?.message || err?.code || 'Unknown error'
       setError(String(detail))

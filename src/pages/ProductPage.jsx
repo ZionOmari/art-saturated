@@ -38,7 +38,10 @@ function ProductGallery({ product }) {
     '8 Tracks':       ['Front', 'Back', 'Detail', 'Detail', 'Detail', 'Detail'],
   }
   const allURLs    = product.imageURLs?.length ? product.imageURLs : (primaryURL ? [primaryURL] : [])
-  const slotLabels = SLOT_LABELS_MAP[product.category] || []
+  // Keyed on `type` ('Vinyl', 'CDs', …), not `category` — category is the broad
+  // bucket ('Physical Media'), so keying on it made every lookup undefined and
+  // left every product photo with alt="".
+  const slotLabels = SLOT_LABELS_MAP[product.type] || SLOT_LABELS_MAP[product.category] || []
   allURLs.forEach((url, i) => {
     if (url) slides.push({ url, label: slotLabels[i] || '', wide: false })
   })
@@ -80,7 +83,7 @@ function ProductGallery({ product }) {
           <img
             key={cur.url}
             src={cur.url}
-            alt={cur.label}
+            alt={cur.label ? `${product.name} — ${cur.label}` : product.name}
             className="w-full h-full"
             style={{ objectFit: product.category === 'Physical Media' ? 'contain' : 'cover' }}
           />
@@ -122,7 +125,7 @@ function ProductGallery({ product }) {
                 outlineOffset: '1px', cursor: 'pointer', overflow: 'hidden', flexShrink: 0,
               }}
             >
-              <img src={s.url} alt={s.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <img src={s.url} alt={s.label ? `${product.name} — ${s.label}` : product.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </button>
           ))}
         </div>

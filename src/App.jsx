@@ -7,6 +7,7 @@ import Navbar            from './components/Navbar'
 import FeedbackBubble    from './components/FeedbackBubble'
 import ProfileSetupModal from './components/ProfileSetupModal'
 import Spinner           from './components/Spinner'
+import { setCanonicalForRoute } from './lib/meta'
 
 // Top-level error boundary — prevents a single bad component from white-screening the app
 class ErrorBoundary extends Component {
@@ -106,6 +107,15 @@ function ScrollToTop() {
   return null
 }
 
+// index.html carries one hard-coded canonical pointing at the homepage. Without
+// this, every route claims to be a duplicate of "/" and product pages get
+// dropped from search results.
+function Canonical() {
+  const { pathname } = useLocation()
+  useEffect(() => { setCanonicalForRoute(pathname) }, [pathname])
+  return null
+}
+
 // Gradient position maps 1:1 to scroll depth — no easing, no cycling, no rAF.
 // Sweeps linearly from the dark-coffee corner (top) to the cream center (bottom).
 // On text-heavy routes the background is frozen at the dark coffee corner.
@@ -172,6 +182,7 @@ export default function App() {
     <AuthProvider>
     <CartProvider>
       <ScrollToTop />
+      <Canonical />
       <Navbar />
       <SetupGate />
 

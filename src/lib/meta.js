@@ -20,6 +20,21 @@ function absolutize(url) {
   return SITE_ORIGIN + (url.startsWith('/') ? url : '/' + url)
 }
 
+// index.html ships a single hard-coded canonical pointing at the homepage. Left
+// alone it tells Google every product, artist and page is a duplicate of "/",
+// which is the strongest de-duplication signal there is — so keep it in step
+// with the route. Query strings and hashes are stripped: /shop?cat=Art is the
+// same page as /shop as far as indexing is concerned.
+function setCanonical(href) {
+  let el = document.querySelector('link[rel="canonical"]')
+  if (!el) {
+    el = document.createElement('link')
+    el.setAttribute('rel', 'canonical')
+    document.head.appendChild(el)
+  }
+  el.setAttribute('href', href)
+}
+
 function setMeta(property, content) {
   let el = document.querySelector(`meta[property="${property}"]`)
     || document.querySelector(`meta[name="${property}"]`)
@@ -35,9 +50,10 @@ export function setPageMeta({ title, description, image, url }) {
   const t = title       || DEFAULTS.title
   const d = description || DEFAULTS.description
   const i = absolutize(image) || DEFAULTS.image
-  const u = url         || window.location.href
+  const u = url         || (SITE_ORIGIN + window.location.pathname)
 
   document.title = t
+  setCanonical(u)
 
   setMeta('og:title',       t)
   setMeta('og:description', d)
@@ -53,8 +69,17 @@ export function setPageMeta({ title, description, image, url }) {
   setMeta('description', d)
 }
 
+// Called on every route change so a page that never sets its own meta still gets
+// a correct canonical. Pages that DO call setPageMeta refine it afterwards.
+export function setCanonicalForRoute(pathname) {
+  setCanonical(SITE_ORIGIN + pathname)
+}
+
 export function resetPageMeta() {
   document.title = DEFAULTS.title
+  // Pages without their own meta still deserve their own canonical — resetting
+  // to DEFAULTS.url here would recreate the every-page-is-the-homepage problem.
+  setCanonical(SITE_ORIGIN + window.location.pathname)
   setMeta('og:title',       DEFAULTS.title)
   setMeta('og:description', DEFAULTS.description)
   setMeta('og:image',       DEFAULTS.image)

@@ -11,6 +11,7 @@
     "test": "firebase emulators:exec --only firestore \"vitest run\"",
     "test:watch": "firebase emulators:exec --only firestore \"vitest\"",
     "gen-sitemap": "node scripts/gen-sitemap.mjs",
+    "backfill-image-cache": "node scripts/backfill-image-cache.mjs",
     "deploy": "vite build && node scripts/gen-sitemap.mjs && firebase deploy --only hosting",
     "check-deps": "npm outdated; echo '--- functions ---'; cd functions && npm outdated"
   },

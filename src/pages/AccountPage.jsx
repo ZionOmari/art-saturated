@@ -301,7 +301,7 @@ function Profile() {
       orderBy('submittedAt', 'desc'),
     )).then(snap => {
       setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(() => {}).finally(() => setSubsLoading(false))
+    }).catch(e => console.error('submissions query failed:', e.code || e.message)).finally(() => setSubsLoading(false))
   }, [tab, user])
 
   useEffect(() => {
@@ -313,7 +313,7 @@ function Profile() {
       orderBy('createdAt', 'desc'),
     )).then(snap => {
       setCommissionRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(() => {}).finally(() => setCommReqLoading(false))
+    }).catch(e => console.error('commissionRequests query failed:', e.code || e.message)).finally(() => setCommReqLoading(false))
   }, [tab, user])
 
   useEffect(() => {

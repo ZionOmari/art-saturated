@@ -95,9 +95,52 @@ export async function deleteProduct(id) {
 
 // ── Image upload ─────────────────────────────────────────────────────────────
 
+// Firebase Storage defaults new objects to `cache-control: private, max-age=0`,
+// which disables browser caching entirely — every product photo was being
+// re-downloaded on every page view. Product images are immutable (the filename
+// carries a timestamp), so they can be cached hard and for a long time.
+const IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+
+// Shop thumbnails render around 300px and the largest product view is ~900px.
+// Uploading straight from a phone camera meant 1200px+, 600KB files for a 300px
+// slot. Downscaling here is the difference between an ~8MB category page and a
+// ~600KB one.
+const MAX_EDGE = 1600
+const JPEG_QUALITY = 0.82
+
+async function downscale(file) {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale  = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
+    // Already small enough and already reasonably compressed — leave it alone.
+    if (scale === 1 && file.size < 400 * 1024) { bitmap.close?.(); return file }
+
+    const w = Math.round(bitmap.width * scale)
+    const h = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
+    bitmap.close?.()
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY))
+    // Only take the re-encode if it actually helped.
+    if (!blob || blob.size >= file.size) return file
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    // Any failure (unsupported codec, OOM on a huge file) — upload the original.
+    return file
+  }
+}
+
 export async function uploadProductImage(file) {
-  const path = `products/${Date.now()}_${file.name}`
-  const snap = await uploadBytes(ref(storage, path), file)
+  const optimised = await downscale(file)
+  const path = `products/${Date.now()}_${optimised.name}`
+  const snap = await uploadBytes(ref(storage, path), optimised, {
+    cacheControl: IMAGE_CACHE_CONTROL,
+    contentType:  optimised.type,
+  })
   return getDownloadURL(snap.ref)
 }
 

@@ -2,13 +2,22 @@ import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { useCart } from '../context/CartContext'
 import Footer from '../components/Footer'
 
 export default function PaymentSuccess() {
   const [params]   = useSearchParams()
   const navigate   = useNavigate()
+  const { clearCart } = useCart()
   const type    = params.get('type')    // 'order' | 'listing' | 'deposit' | 'blog' | 'preorder'
   const orderId = params.get('orderId')
+
+  // The cart is emptied here rather than at redirect time, so abandoning at the
+  // Stripe page leaves it intact to come back to.
+  useEffect(() => {
+    if (type !== 'order') return
+    clearCart()
+  }, [type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fire a GA4 `purchase` event so Google Ads can count sales as conversions.
   // De-duped per order; value enriched from the order doc when readable.
