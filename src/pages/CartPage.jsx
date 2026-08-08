@@ -270,7 +270,7 @@ export default function CartPage() {
                   `~${totalWeightOz.toFixed(1)} oz total · est. shipping $${shippingCost.toFixed(2)}`
                 }
                 {method === 'ship' && totalWeightOz === 0 &&
-                  'Shipping calculated at checkout'
+                  'Free shipping on this order'
                 }
                 {method === 'pickup' &&
                   'Free local pickup · 3945 Parnell Ave, Fort Wayne IN · We\'ll contact you when ready'
@@ -343,7 +343,7 @@ export default function CartPage() {
                 {method === 'ship' && (
                   <div className="flex justify-between font-mono text-[12px] text-warm-gray">
                     <span>Shipping</span>
-                    <span>{shippingCost > 0 ? `$${shippingCost.toFixed(2)}` : '—'}</span>
+                    <span>{shippingCost > 0 ? `$${shippingCost.toFixed(2)}` : 'Free'}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-mono text-[12px] text-warm-gray">
@@ -373,7 +373,8 @@ export default function CartPage() {
                 <p className="font-mono text-[11px] text-red-500 mb-4 text-center">{error}</p>
               )}
 
-              {/* Login gate */}
+              {/* Login gate — return to the cart after signing in, not /account,
+                  so the buyer keeps their items and typed address. */}
               {!user ? (
                 <div className="text-center py-2">
                   <p className="font-mono text-[12px] text-warm-gray mb-4">
@@ -381,7 +382,7 @@ export default function CartPage() {
                   </p>
                   <button
                     className="btn-ghost w-full"
-                    onClick={() => navigate('/account')}
+                    onClick={() => navigate('/login', { state: { from: '/cart' } })}
                   >
                     Sign In / Create Account
                   </button>
@@ -408,6 +409,16 @@ export default function CartPage() {
 
               <p className="font-mono text-[11px] text-center text-warm-gray tracking-wide">
                 Secure payment via Stripe
+              </p>
+
+              {/* First-purchase reassurance — a one-person shop asking a stranger
+                  for a card needs to answer "what if something's wrong?" up front.
+                  Deliberately no invented return window; just a real human to reach. */}
+              <p className="font-mono text-[10px] text-center text-warm-gray tracking-wide mt-3 leading-relaxed">
+                Ships in 3–7 business days · Questions or an issue? Email{' '}
+                <a href="mailto:zionomari@artsaturated.com" className="underline hover:text-ink">
+                  zionomari@artsaturated.com
+                </a>
               </p>
             </div>
           </>

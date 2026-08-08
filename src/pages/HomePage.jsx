@@ -159,51 +159,9 @@ export default function HomePage() {
       <ArtCarousel />
 
       {/* Creator recruitment and Events sections retired Aug 2026 — the site is now
-          shop + consultations only. Their components remain under src/components. */}
-
-      {/* ── Beta transparency ────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-6 pb-20">
-        <div style={{ border: '1px solid #a08060', padding: 'clamp(24px, 4vw, 40px)', background: 'rgba(185,122,48,0.03)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-start gap-5">
-            <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.15em', color: '#b97a30', border: '1px solid #b97a30', padding: '3px 7px', flexShrink: 0, alignSelf: 'flex-start', marginTop: '3px' }}>
-              BETA
-            </span>
-            <div>
-              <h3 className="font-serif text-[1.25rem] font-normal mb-3">We're building in public.</h3>
-              <p className="font-mono text-[12px] text-warm-gray leading-relaxed max-w-xl">
-                Art Saturated is in active development. The shop, booking, artist submissions, and event calendar
-                are all live and fully functional — but you may encounter rough edges as we keep building.
-                New features land regularly and we're transparent about what's in progress.
-              </p>
-              <p className="font-mono text-[11px] text-warm-gray mt-4 leading-relaxed">
-                Your feedback directly shapes what gets built next. Use the{' '}
-                <span className="text-ink">feedback button</span>{' '}
-                in the corner of any page — we read everything.
-              </p>
-              <div className="flex flex-wrap gap-6 mt-6 pt-5 border-t border-warm-gray-light">
-                {[
-                  { label: 'Shop & cart',               status: 'Live' },
-                  { label: 'Artist listings',            status: 'Live' },
-                  { label: 'Artist profiles',            status: 'Live' },
-                  { label: 'Creator accounts',           status: 'Live' },
-                  { label: 'Partnership program',        status: 'Live' },
-                  { label: 'Creative services booking',  status: 'Live' },
-                  { label: 'Events calendar',            status: 'Live' },
-                  { label: 'Wishlist & accounts',        status: 'Live' },
-                  { label: 'Custom CDs',                 status: 'Live' },
-                  { label: 'Shipping labels',            status: 'Coming soon' },
-                ].map(({ label, status }) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: status === 'Live' ? '#5a8a5a' : '#b97a30' }} />
-                    <span className="font-mono text-[11px] text-warm-gray">{label}</span>
-                    <span className="font-mono text-[10px]" style={{ color: status === 'Live' ? '#5a8a5a' : '#b97a30' }}>— {status}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+          shop + consultations only. The beta "building in public / rough edges"
+          panel was removed too: it warned first-time buyers of rough edges right
+          before checkout and listed several now-retired features as "Live". */}
 
       <Footer />
     </main>

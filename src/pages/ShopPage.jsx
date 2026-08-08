@@ -87,6 +87,13 @@ export default function ShopPage() {
       })
     : null
 
+  // Sold / out-of-stock items still show (a strike-through "Sold" card is social
+  // proof that pieces move), but they sink below what's actually buyable so the
+  // top of every category is things a visitor can still purchase. Array.sort is
+  // stable, so each category's existing order is preserved within each group.
+  const isUnavailable = (p) =>
+    p.sold === true || (p.stock != null && p.stock !== '' && Number(p.stock) <= 0)
+
   const filtered = (() => {
     if (!activeFilter) return []
     if (activeFilter === 'Art') {
@@ -116,6 +123,9 @@ export default function ShopPage() {
     }
     return products.filter((p) => p.category === activeFilter)
   })()
+    // Available first, sold last — stable, so within each group order is untouched.
+    .slice()
+    .sort((a, b) => (isUnavailable(a) ? 1 : 0) - (isUnavailable(b) ? 1 : 0))
 
   function handleCategoryClick(cat) {
     setSearchParams({ cat }, { replace: true })
