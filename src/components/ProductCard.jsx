@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 /**
  * ProductCard
@@ -27,23 +27,23 @@ function SoldBadge() {
 }
 
 function ProductCard({ product, glassMode = false, artMode = false, vintageMode = false }) {
-  const navigate = useNavigate()
-
-  const go = () => navigate(`/shop/${product.slug}`)
-  // Keyboard + screen-reader access: cards behave as links (Enter/Space activate).
+  // Render as a real <a href> (react-router Link) rather than an onClick div.
+  // A role="link" div is invisible to crawlers — Googlebot doesn't synthesise
+  // clicks — so there was no discoverable path from /shop to any product page.
+  // Link gives a crawlable href, SPA navigation, and keyboard/AX for free.
+  // `block no-underline text-inherit` keeps the anchor laying out and styled like
+  // the old <article> instead of an inline blue link.
   const cardProps = {
-    onClick: go,
-    onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go() } },
-    role: 'link',
-    tabIndex: 0,
+    to: `/shop/${product.slug}`,
     'aria-label': product.name,
   }
+  const cardBase = 'block no-underline text-inherit'
 
   if (artMode) {
     return (
-      <article
+      <Link
         {...cardProps}
-        className="group cursor-pointer overflow-hidden"
+        className={`${cardBase} group cursor-pointer overflow-hidden`}
         style={{
           position: 'relative',
           background: 'rgba(255, 250, 240, 0.55)',
@@ -79,15 +79,15 @@ function ProductCard({ product, glassMode = false, artMode = false, vintageMode 
             </p>
           )}
         </div>
-      </article>
+      </Link>
     )
   }
 
   if (glassMode) {
     return (
-      <article
+      <Link
         {...cardProps}
-        className="group cursor-pointer overflow-hidden"
+        className={`${cardBase} group cursor-pointer overflow-hidden`}
         style={{
           position: 'relative',
           background: 'rgba(255,255,255,0.07)',
@@ -135,16 +135,16 @@ function ProductCard({ product, glassMode = false, artMode = false, vintageMode 
             </p>
           )}
         </div>
-      </article>
+      </Link>
     )
   }
 
   if (vintageMode) {
     return (
-      <article
+      <Link
         {...cardProps}
         data-vintage-card="true"
-        className="group cursor-pointer overflow-hidden relative"
+        className={`${cardBase} group cursor-pointer overflow-hidden relative`}
         style={{
           background: 'rgba(18,18,18,0.92)',
           border: '1px solid rgba(255,255,255,0.08)',
@@ -204,14 +204,14 @@ function ProductCard({ product, glassMode = false, artMode = false, vintageMode 
             </p>
           )}
         </div>
-      </article>
+      </Link>
     )
   }
 
   return (
-    <article
+    <Link
       {...cardProps}
-      className="group bg-cream hover:bg-paper transition-colors duration-200 cursor-pointer overflow-hidden"
+      className={`${cardBase} group bg-cream hover:bg-paper transition-colors duration-200 cursor-pointer overflow-hidden`}
     >
       {/* Product image / placeholder */}
       <div className="w-full aspect-square bg-paper flex items-center justify-center relative overflow-hidden">
@@ -251,7 +251,7 @@ function ProductCard({ product, glassMode = false, artMode = false, vintageMode 
           </p>
         )}
       </div>
-    </article>
+    </Link>
   )
 }
 
