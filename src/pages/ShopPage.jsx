@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ProductGrid from '../components/ProductGrid'
 import Footer from '../components/Footer'
+import Spinner from '../components/Spinner'
 import FloraRoots from '../components/FloraRoots'
 import DrawingCanvas from '../components/DrawingCanvas'
 import CommissionForm from '../components/CommissionForm'
@@ -19,11 +20,21 @@ export default function ShopPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [showCommission, setShowCommission] = useState(false)
   const [products, setProducts] = useState([])
+  const [loadState, setLoadState] = useState('loading')  // 'loading' | 'ready' | 'error'
   const [searchQuery, setSearchQuery] = useState('')
 
   const activeFilter  = searchParams.get('cat') || null
 
-  useEffect(() => { fetchShopProducts().then(setProducts).catch(() => {}) }, [])
+  // Without a load state the shop shows an empty page while the catalog loads and
+  // — because the error was swallowed — stayed blank forever if the fetch failed.
+  const loadProducts = useCallback(() => {
+    setLoadState('loading')
+    fetchShopProducts()
+      .then(p => { setProducts(p); setLoadState('ready') })
+      .catch(() => setLoadState('error'))
+  }, [])
+
+  useEffect(() => { loadProducts() }, [loadProducts])
 
   // Only surface categories that actually have listings. (Physical Media used to
   // be pinned open for the Enigma preorder spotlight; the album is a normal
@@ -172,7 +183,18 @@ export default function ShopPage() {
             )}
           </div>
 
-          {!searchResults && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {!searchResults && loadState === 'loading' && visibleCategories.length === 0 && (
+            <div className="flex justify-center py-20"><Spinner size={22} color="#3d2810" /></div>
+          )}
+
+          {!searchResults && loadState === 'error' && (
+            <div className="flex flex-col items-center gap-5 py-20 text-center">
+              <p className="font-mono text-[13px] text-warm-gray">The shop couldn't load. Check your connection and try again.</p>
+              <button onClick={loadProducts} className="btn-outline">Retry</button>
+            </div>
+          )}
+
+          {!searchResults && loadState !== 'error' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {visibleCategories.map((cat) => (
               <button
                 key={cat}

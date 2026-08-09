@@ -32,9 +32,25 @@ export function formatSubmissionNumber(n) { return `SB-${String(n).padStart(4, '
 
 // ── Products — Firestore ─────────────────────────────────────────────────────
 
+// The home page fetches the whole products collection, and so does ArtCarousel
+// (via fetchRecentArt) — both mount together, so a single home-page view was
+// downloading the entire catalog twice. Dedupe only while a fetch is IN FLIGHT:
+// concurrent callers share one round-trip, but the handle clears as soon as it
+// settles, so a later navigation (or an admin edit) always gets fresh data. No
+// TTL, so no staleness.
+let _allProductsInflight = null
+
 export async function fetchAllProducts() {
-  const snap = await getDocs(query(collection(db, 'products'), orderBy('createdAt', 'desc')))
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  if (_allProductsInflight) return _allProductsInflight
+  _allProductsInflight = (async () => {
+    const snap = await getDocs(query(collection(db, 'products'), orderBy('createdAt', 'desc')))
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  })()
+  try {
+    return await _allProductsInflight
+  } finally {
+    _allProductsInflight = null
+  }
 }
 
 // Shop-facing fetch — only active, non-bucket, non-mystery products

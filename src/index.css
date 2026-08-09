@@ -55,10 +55,14 @@
     transition: background-color 0.25s ease;
   }
 
-  /* Keyboard focus ring — visible for keyboard users, hidden for mouse/touch */
+  /* Keyboard focus ring — visible for keyboard users, hidden for mouse/touch.
+     !important is deliberate: dozens of inputs carry an inline `outline: none`
+     that would otherwise win by specificity and leave keyboard users with no
+     visible focus indicator at all. Nothing in the app defines a custom
+     per-element focus ring, so forcing this one is safe. */
   :focus-visible {
-    outline: 2px solid #a08060;
-    outline-offset: 3px;
+    outline: 2px solid #7a5030 !important;
+    outline-offset: 3px !important;
   }
   :focus:not(:focus-visible) {
     outline: none;
