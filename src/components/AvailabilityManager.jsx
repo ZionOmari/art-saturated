@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { getSlots, getBookings, cancelBooking, isShopHour, loadShopHours,
          blockTime, unblockTime, getBlockedTimesForDate,
          DEFAULT_AVAIL_START, DEFAULT_AVAIL_END,
-         getStudents, getStudentSlotsForDate } from '../data/booking'
+       } from '../data/booking'
 import { getTasksForRange, TASK_TYPES } from '../data/tasks'
 import ScheduleManager from './ScheduleManager'
 import DailyPlanner from './DailyPlanner'
@@ -45,7 +45,6 @@ export default function AvailabilityManager() {
   const [blockedTimes, setBlockedTimes] = useState([])  // blocked times for selectedDate
   const [loading, setLoading]         = useState(true)
   const [shopConfig, setShopConfig]   = useState(null)
-  const [students, setStudents]       = useState([])
   // taskDots: { [dateStr]: string[] } — array of dot colors per day
   const [taskDots, setTaskDots] = useState({})
 
@@ -54,8 +53,8 @@ export default function AvailabilityManager() {
 
   async function refresh() {
     try {
-      const [s, b, cfg, studs] = await Promise.all([getSlots(), getBookings(), loadShopHours(), getStudents()])
-      setSlots(s); setBookings(b); setShopConfig(cfg); setStudents(studs)
+      const [s, b, cfg] = await Promise.all([getSlots(), getBookings(), loadShopHours()])
+      setSlots(s); setBookings(b); setShopConfig(cfg)
     } catch (err) {
       console.error('Availability load error:', err)
     } finally {
@@ -213,22 +212,10 @@ export default function AvailabilityManager() {
                 const bookedTimes  = new Set(slotsForDate(selectedDate).filter(s => s.booked).map(s => s.time))
                 const blockedSet   = new Set(blockedTimes.map(b => b.time))
                 const blockedById  = Object.fromEntries(blockedTimes.map(b => [b.time, b.id]))
-                const studentSlots = getStudentSlotsForDate(students, selectedDate)
                 return ALL_SLOTS.map(t => {
                   const isShop    = isShopHour(selectedDate, t, shopConfig)
                   const isBooked  = bookedTimes.has(t)
                   const isBlocked = blockedSet.has(t)
-                  const isStudent = studentSlots.has(t)
-
-                  if (isStudent) return (
-                    <div key={t} className="border py-2 font-mono text-[11px] text-center select-none flex flex-col items-center gap-[2px]"
-                      style={{ borderColor: 'rgba(58,90,122,0.3)', color: '#3a5a7a', background: 'rgba(58,90,122,0.08)' }}>
-                      {fmtTime(t)}
-                      <span style={{ fontSize: '8px', letterSpacing: '0.06em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
-                        {studentSlots.get(t)}
-                      </span>
-                    </div>
-                  )
 
                   if (isShop) return (
                     <div key={t} className="border py-2 font-mono text-[11px] text-center select-none flex flex-col items-center gap-[2px]"
@@ -267,7 +254,6 @@ export default function AvailabilityManager() {
               })()}
             </div>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '4px' }}>
-              <span className="font-mono text-[9px] flex items-center gap-1" style={{ color: '#3a5a7a' }}>■ Student</span>
               <span className="font-mono text-[9px] flex items-center gap-1" style={{ color: '#b97a20' }}>■ Shop hours</span>
               <span className="font-mono text-[9px] flex items-center gap-1 text-ink">■ Booked</span>
               <span className="font-mono text-[9px] flex items-center gap-1" style={{ color: '#7a2020' }}>■ Blocked — click to unblock</span>

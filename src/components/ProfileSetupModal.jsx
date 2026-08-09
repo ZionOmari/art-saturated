@@ -156,7 +156,6 @@ export default function ProfileSetupModal() {
               {[
                 ['collector', 'Collecting',      'Browse and buy art, media, and goods'],
                 ['creator',   'Creating',        'Sell your work — $7.99/month, unlimited uploads'],
-                ['student',   'Learning',        'Book sessions and track your progress'],
                 ['both',      'Both',            'Shop and sell on the platform'],
               ].map(([val, label, hint]) => (
                 <button key={val} onClick={() => toggleType(val)} style={{ ...pill(pillActive(val)), textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', padding: '12px 16px' }}>

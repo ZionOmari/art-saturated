@@ -7,9 +7,7 @@ import { useAuth, hasRole, normalizeTypes } from '../context/AuthContext'
 import Footer from '../components/Footer'
 import ProfileAvatar from '../components/ProfileAvatar'
 import Spinner from '../components/Spinner'
-import LessonNotebook from '../components/LessonNotebook'
 import MessageThread from '../components/MessageThread'
-import { getStudentByEmail } from '../data/booking'
 import MysteryPreferencesPanel, { DEFAULT_MYSTERY_PREFS } from '../components/MysteryPreferencesPanel'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
 
@@ -161,7 +159,6 @@ function SignUp({ onSwitch }) {
           {[
             { key: 'collector', label: 'Collect',  desc: 'Shop, track orders, save items' },
             { key: 'creator',   label: 'Create',   desc: 'List art, track sales, reach collectors' },
-            { key: 'student',   label: 'Learn',    desc: 'Book lessons, track your progress' },
           ].map(({ key, label, desc }) => {
             const on = accountType.includes(key)
             return (
@@ -230,7 +227,6 @@ function Profile() {
   const [searchParams, setSearchParams] = useSearchParams()
   const isOwner    = user?.email === 'zionomari@artsaturated.com'
   const isCreator  = isOwner || hasRole(profile?.accountType, 'creator')
-  const isStudent  = isOwner || hasRole(profile?.accountType, 'student')
   // Land everyone on the Artist Profile tab by default — encourages submitting,
   // sharing work, and going public (and the "become a Creator" toggle lives there).
   const defaultTab = 'artist'
@@ -270,7 +266,6 @@ function Profile() {
   const [collectorRequests,  setCollectorRequests]  = useState([])
   const [collReqLoading,     setCollReqLoading]     = useState(false)
   const [openThreadId,       setOpenThreadId]       = useState(null)
-  const [studentRecord, setStudentRecord] = useState(null)
   const [mysteryPrefs,    setMysteryPrefs]    = useState({ ...DEFAULT_MYSTERY_PREFS })
   const [mysteryPrefsSaved,   setMysteryPrefsSaved]   = useState(false)
   const [mysteryPrefsSaving,  setMysteryPrefsSaving]  = useState(false)
@@ -287,9 +282,6 @@ function Profile() {
   }, [isCreator])
 
   useEffect(() => {
-    if (tab === 'lessons' && user?.email) {
-      getStudentByEmail(user.email).then(setStudentRecord).catch(() => {})
-    }
   }, [tab, user?.email])
 
   useEffect(() => {
@@ -453,7 +445,6 @@ function Profile() {
         )}
         <button style={tabBtn(tab === 'wishlist')}    onClick={() => setTab('wishlist')}>Wishlist</button>
         <button style={tabBtn(tab === 'requests')}   onClick={() => setTab('requests')}>My Requests</button>
-        {isStudent && <button style={tabBtn(tab === 'lessons')} onClick={() => setTab('lessons')}>Lessons</button>}
         <button style={tabBtn(tab === 'settings')}    onClick={() => setTab('settings')}>Settings</button>
         <button style={tabBtn(tab === 'mystery')}     onClick={() => setTab('mystery')}>Mystery Profile</button>
         {isOwner && (
@@ -679,43 +670,6 @@ function Profile() {
               </ul>
             </>
           )}
-        </div>
-      )}
-
-      {/* ── Lessons (student) ─────────────────────────────────── */}
-      {tab === 'lessons' && (
-        <div>
-          {/* Tuition status banner */}
-          {studentRecord && (studentRecord.nextDueDate || studentRecord.price != null) && (
-            <div style={{
-              border: '1px solid',
-              borderColor: studentRecord.duesPaid ? '#3a7a40' : (studentRecord.nextDueDate && new Date(studentRecord.nextDueDate + 'T00:00:00') < new Date()) ? '#b94040' : '#b97a30',
-              padding: '12px 16px',
-              marginBottom: '20px',
-              background: studentRecord.duesPaid ? 'rgba(58,122,64,0.05)' : 'rgba(185,122,48,0.05)',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div>
-                  <p style={{ fontFamily: 'monospace', fontSize: '11px', color: 'rgb(var(--color-ink))', margin: '0 0 2px' }}>
-                    {studentRecord.duesPaid ? 'Tuition paid ✓' : 'Tuition due'}
-                    {studentRecord.price != null && ` · $${studentRecord.price}`}
-                    {studentRecord.billingCycle === 'monthly' ? '/month' : studentRecord.billingCycle === 'weekly' ? '/week' : ' per lesson'}
-                  </p>
-                  {studentRecord.nextDueDate && (
-                    <p style={{ fontFamily: 'monospace', fontSize: '10px', color: 'rgb(var(--color-warm-gray))', margin: 0 }}>
-                      {studentRecord.duesPaid ? 'Next due:' : 'Due:'} {new Date(studentRecord.nextDueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                    </p>
-                  )}
-                </div>
-                {studentRecord.paymentMethod && studentRecord.paymentMethod !== 'cash' && (
-                  <p style={{ fontFamily: 'monospace', fontSize: '10px', color: 'rgb(var(--color-warm-gray))', margin: 0, textTransform: 'capitalize' }}>
-                    Pay via {studentRecord.paymentMethod}{studentRecord.paymentHandle ? ` · ${studentRecord.paymentHandle}` : ''}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-          <LessonNotebook studentEmail={user?.email} isAdmin={false} subjects={studentRecord?.subjects || []} />
         </div>
       )}
 
@@ -953,7 +907,6 @@ function Profile() {
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
               <button style={toggleStyle(hasRole(profile?.accountType, 'collector'))} onClick={() => switchAccountType('collector')}>Collector</button>
               <button style={toggleStyle(hasRole(profile?.accountType, 'creator'))}   onClick={() => switchAccountType('creator')}>Creator</button>
-              <button style={toggleStyle(hasRole(profile?.accountType, 'student'))}   onClick={() => switchAccountType('student')}>Student</button>
             </div>
             {isCreator && (
               <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#3a7a40' }}>✓ Creator features unlocked</p>
@@ -1162,7 +1115,6 @@ function Profile() {
           <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
             <button style={toggleStyle(hasRole(profile?.accountType, 'collector'))} onClick={() => switchAccountType('collector')}>Collector</button>
             <button style={toggleStyle(hasRole(profile?.accountType, 'creator'))}   onClick={() => switchAccountType('creator')}>Creator</button>
-            <button style={toggleStyle(hasRole(profile?.accountType, 'student'))}   onClick={() => switchAccountType('student')}>Student</button>
           </div>
           <p style={{ fontFamily: 'monospace', fontSize: '11px', color: 'rgb(var(--color-warm-gray))', marginBottom: '24px' }}>
             {normalizeTypes(profile?.accountType).join(' · ') || 'No roles selected'}

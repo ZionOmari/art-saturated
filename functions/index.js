@@ -984,74 +984,6 @@ exports.reconcileStripePayments = functions
     return null
   })
 
-// ── Firestore: Teaching rate change → grandfather + notify students ───────────
-exports.onTeachingRatesUpdated = functions
-  .runWith({ timeoutSeconds: 120 })
-  .firestore
-  .document('settings/teachingRates')
-  .onWrite(async (change) => {
-    const before = change.before.exists ? change.before.data() : null
-    const after  = change.after.exists  ? change.after.data()  : null
-    if (!before || !after) return null   // first create — no students to notify yet
-
-    const pricesChanged =
-      before.singleLesson !== after.singleLesson ||
-      before.monthly1x    !== after.monthly1x    ||
-      before.monthly2x    !== after.monthly2x
-
-    if (!pricesChanged) return null
-
-    // Build change summary
-    const changes = []
-    if (before.singleLesson !== after.singleLesson)
-      changes.push(`  • Single session: $${before.singleLesson} → $${after.singleLesson}/hr`)
-    if (before.monthly1x !== after.monthly1x)
-      changes.push(`  • 1x/week monthly plan: $${before.monthly1x} → $${after.monthly1x}/mo`)
-    if (before.monthly2x !== after.monthly2x)
-      changes.push(`  • 2x/week monthly plan: $${before.monthly2x} → $${after.monthly2x}/mo`)
-
-    // Set grandfather date (3 months from now) on the rates doc
-    const grandfatherDate = new Date()
-    grandfatherDate.setMonth(grandfatherDate.getMonth() + 3)
-    await change.after.ref.update({
-      grandfatherUntil: admin.firestore.Timestamp.fromDate(grandfatherDate),
-      previousRates: { singleLesson: before.singleLesson, monthly1x: before.monthly1x, monthly2x: before.monthly2x },
-    })
-
-    // Collect unique student emails from all bookings
-    const db       = admin.firestore()
-    const bookSnap = await db.collection('bookings').get()
-    const emails   = [...new Set(
-      bookSnap.docs.map(d => d.data().email).filter(Boolean)
-    )]
-    if (!emails.length) return null
-
-    initSG()
-    const grandfatherStr = grandfatherDate.toLocaleDateString('en-US', {
-      month: 'long', day: 'numeric', year: 'numeric',
-    })
-
-    await Promise.all(emails.map(email =>
-      sendEmail(
-        email,
-        'Lesson Rate Update — Art Saturated',
-        fmtEmail(undefined, [
-          `Just a heads-up — lesson rates at Art Saturated are updating:`,
-          ``,
-          ...changes,
-          ``,
-          `As a current student, your existing rate is locked in until ${grandfatherStr} — that's 3 full months from today.`,
-          ``,
-          `After that date, new bookings will reflect the updated rates above.`,
-          ``,
-          `Thank you for your support!`,
-        ], '— Zion'),
-      ).catch(e => console.error(`Failed to notify ${email}:`, e))
-    ))
-
-    return null
-  })
-
 // ── Order paid → confirm buyer + notify shop ──────────────────────────────────
 // Called once payment actually lands, never on order creation: the client writes
 // the order doc BEFORE redirecting to Stripe, so an abandoned cart also creates a
@@ -1422,119 +1354,6 @@ exports.onEventSubmissionChanged = functions.firestore
       ).catch(console.error)
     }
 
-    return null
-  })
-
-// ── Email: Send student invite ────────────────────────────────────────────────
-exports.sendStudentInvite = functions.https.onCall(async (data, context) => {
-  // Admin-only: this sends mail from our domain — never expose it as an open relay.
-  if (context.auth?.token?.email !== OWNER_EMAIL) {
-    throw new functions.https.HttpsError('permission-denied', 'Admins only.')
-  }
-  const { studentEmail, studentName } = data
-  if (!studentEmail) throw new functions.https.HttpsError('invalid-argument', 'Email is required.')
-
-  initSG()
-
-  const firstName = studentName ? studentName.split(' ')[0] : null
-
-  await sendEmail(
-    studentEmail,
-    'You\'ve been invited to Art Saturated',
-    [
-      `Hi${firstName ? ` ${firstName}` : ''},`,
-      ``,
-      `You've been added as a student on Art Saturated.`,
-      ``,
-      `Create your account to access your lesson notebook, homework assignments, lesson recaps, and payment history:`,
-      ``,
-      `  ${CLIENT_URL}/login`,
-      ``,
-      `When signing up, select "Student" as your account type — this unlocks your personal lesson portal.`,
-      ``,
-      `See you in the studio!`,
-      `— Art Saturated`,
-    ].join('\n')
-  )
-
-  // Record invite timestamp on the student record
-  const db = admin.firestore()
-  const snap = await db.collection('students').where('email', '==', studentEmail).limit(1).get()
-  if (!snap.empty) {
-    await snap.docs[0].ref.update({ invitedAt: FieldValue.serverTimestamp() })
-  }
-
-  return { success: true }
-})
-
-// ── Scheduled: 24-hour lesson reminders ──────────────────────────────────────
-// Runs daily at 9 AM Central. Finds bookings for tomorrow and emails each client.
-exports.sendLessonReminders = functions
-  .runWith({ timeoutSeconds: 300 })
-  .pubsub
-  .schedule('0 9 * * *')
-  .timeZone('America/Chicago')
-  .onRun(async () => {
-    initSG()
-    const db = admin.firestore()
-
-    // Build tomorrow's date string YYYY-MM-DD
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const pad = n => String(n).padStart(2, '0')
-    const tomorrowStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`
-
-    const snap = await db.collection('bookings')
-      .where('date', '==', tomorrowStr)
-      .where('status', '!=', 'cancelled')
-      .get()
-
-    if (snap.empty) {
-      console.log(`No bookings for ${tomorrowStr}`)
-      return null
-    }
-
-    const fmtTime = t => {
-      if (!t) return ''
-      const [h, m] = t.split(':').map(Number)
-      const ampm = h >= 12 ? 'PM' : 'AM'
-      const hr   = h % 12 || 12
-      return `${hr}:${String(m).padStart(2,'0')} ${ampm}`
-    }
-
-    const fmtDate = dateStr => {
-      const [y, mo, d] = dateStr.split('-').map(Number)
-      return new Date(y, mo - 1, d).toLocaleDateString('en-US', {
-        weekday: 'long', month: 'long', day: 'numeric',
-      })
-    }
-
-    await Promise.all(snap.docs.map(doc => {
-      const b = doc.data()
-      if (!b.email) return Promise.resolve()
-      const timeStr = fmtTime(b.time)
-      const dateStr = fmtDate(tomorrowStr)
-      return sendEmail(
-        b.email,
-        `Reminder: Session Tomorrow — Art Saturated`,
-        [
-          `Hey ${b.name || 'there'},`,
-          ``,
-          `Just a reminder — you have a session scheduled for tomorrow!`,
-          ``,
-          `  Date:    ${dateStr}`,
-          timeStr ? `  Time:    ${timeStr}` : '',
-          b.service ? `  Service: ${b.service}` : '',
-          ``,
-          `See you then!`,
-          `— Zion at Art Saturated`,
-          ``,
-          `Need to reschedule? Reply to this email or visit ${CLIENT_URL}/book`,
-        ].filter(l => l !== null && l !== undefined).join('\n'),
-      ).catch(e => console.error(`Reminder failed for ${b.email}:`, e))
-    }))
-
-    console.log(`Sent reminders for ${snap.size} booking(s) on ${tomorrowStr}`)
     return null
   })
 
@@ -2757,46 +2576,6 @@ exports.onBookingCreated = functions.firestore
     return null
   })
 
-// ── Firestore: Monthly plan signup → confirm customer + notify Zion ───────────
-exports.onMonthlyStudentCreated = functions.firestore
-  .document('monthlyStudents/{id}')
-  .onCreate(async (snap) => {
-    initSG()
-    const s = snap.data()
-    if (!s.email) return null
-
-    // Confirmation to customer
-    await sendEmail(
-      s.email,
-      `Monthly Plan Request Received — Art Saturated`,
-      fmtEmail(s.name, [
-        `Thanks for signing up for a monthly lesson plan!`,
-        ``,
-        `Plan:  ${s.planLabel || s.plan || '—'}`,
-        `Rate:  $${s.price || '?'}/month`,
-        ``,
-        `Zion will reach out within 24 hours to schedule your first session.`,
-      ], '— Art Saturated'),
-    ).catch(console.error)
-
-    // Notification to Zion
-    await sendEmail(
-      OWNER_EMAIL,
-      `New Monthly Plan — ${s.planLabel || s.plan || '?'}`,
-      [
-        `New monthly plan request!`,
-        ``,
-        `Client: ${s.name || '?'}`,
-        `Email:  ${s.email}`,
-        `Phone:  ${s.phone || 'N/A'}`,
-        `Plan:   ${s.planLabel || s.plan || '—'} — $${s.price || '?'}/month`,
-        s.notes ? `\nNotes: ${s.notes}` : '',
-      ].filter(l => l !== null && l !== undefined).join('\n'),
-    ).catch(console.error)
-
-    return null
-  })
-
 // ── Workshop confirmation email ───────────────────────────────────────────────
 exports.sendWorkshopConfirmation = functions.https.onCall(async (data, context) => {
   initSG()
@@ -2915,7 +2694,7 @@ exports.onWorkshopRsvpCreated = functions.firestore
       ], '— Art Saturated'),
     ).catch(e => console.error('RSVP confirmation error:', e.response?.body?.errors?.[0]?.message || e.message))
 
-    // 2. Notify Zion (skip for students Zion added manually in the admin panel)
+    // 2. Notify Zion (skip for attendees Zion added manually in the admin panel)
     if (!r.addedByAdmin) {
       await sendEmail(
         OWNER_EMAIL,

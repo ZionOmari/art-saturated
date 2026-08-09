@@ -7,7 +7,6 @@ import { CATEGORIES } from '../data/products'
 import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
 import CropModal   from '../components/CropModal'
 import AvailabilityManager from '../components/AvailabilityManager'
-import StudentsPanel from '../components/StudentsPanel'
 import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, increment, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, storage, functions } from '../lib/firebase'
@@ -16,7 +15,6 @@ import { fetchArchive, addArchiveItem, deleteArchiveItem } from '../data/archive
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { addTask, addBusinessDays, todayStr, TASK_TYPES } from '../data/tasks'
 import { getSubmissions, approveSubmission, denySubmission, getAllEvents, deleteEvent, addEvent, updateEvent, applyEventEdit, denyEventEdit } from '../data/events'
-import { loadTeachingRates, saveTeachingRates, DEFAULT_TEACHING_RATES } from '../data/booking'
 import { coverFor } from '../data/blog'
 import { applyWatermark } from '../lib/watermark'
 import BarcodeScanner from '../components/BarcodeScanner'
@@ -2895,140 +2893,6 @@ function CDOrdersPanel() {
 
 const OWNER_EMAIL = 'zionomari@artsaturated.com'
 
-// ── Teaching Panel ────────────────────────────────────────────────────────────
-function TeachingPanel() {
-  const [rates,   setRates]   = useState(null)
-  const [form,    setForm]    = useState(null)
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [changed, setChanged] = useState(false)
-
-  const inp = {
-    fontFamily: 'monospace', fontSize: '14px', padding: '10px 12px',
-    border: '1px solid #a08060', background: 'rgba(237,232,224,0.5)',
-    color: '#1a1814', outline: 'none', width: '100%', boxSizing: 'border-box',
-  }
-
-  useEffect(() => {
-    loadTeachingRates().then(r => {
-      setRates(r)
-      setForm({ singleLesson: r.singleLesson, monthly1x: r.monthly1x, monthly2x: r.monthly2x })
-    })
-  }, [])
-
-  function handleChange(field, val) {
-    setForm(f => ({ ...f, [field]: val }))
-    setChanged(true)
-    setSaved(false)
-  }
-
-  async function handleSave() {
-    if (!form) return
-    setSaving(true)
-    try {
-      const newRates = {
-        singleLesson: Number(form.singleLesson),
-        monthly1x:    Number(form.monthly1x),
-        monthly2x:    Number(form.monthly2x),
-      }
-      await saveTeachingRates(newRates)
-      setRates(r => ({ ...r, ...newRates }))
-      setChanged(false)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (!form) return <p className="font-mono text-[13px] text-warm-gray py-8">Loading…</p>
-
-  const grandfatherUntil = rates?.grandfatherUntil?.toDate?.() ?? null
-  const inGrandfatherPeriod = grandfatherUntil && grandfatherUntil > new Date()
-  const grandfatherStr = grandfatherUntil
-    ? grandfatherUntil.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : null
-
-  return (
-    <div style={{ maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
-
-      {/* Grandfather notice */}
-      {inGrandfatherPeriod && (
-        <div style={{ background: 'rgba(180,120,0,0.08)', border: '1px solid rgba(180,120,0,0.3)', padding: '10px 14px', borderRadius: '4px' }}>
-          <p className="font-mono text-[11px]" style={{ color: '#8a6000' }}>
-            Grandfather period active — existing students locked in at previous rates until <strong>{grandfatherStr}</strong>.
-            Notification emails were sent automatically when you saved the last rate change.
-          </p>
-        </div>
-      )}
-
-      {/* Single lesson */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Single Session</p>
-          <div>
-            <label className="eyebrow block mb-1">Per-session rate</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="font-mono text-[14px] text-warm-gray">$</span>
-              <input
-                type="number" min="1" step="1"
-                value={form.singleLesson}
-                onChange={e => handleChange('singleLesson', e.target.value)}
-                style={{ ...inp, maxWidth: '120px' }}
-              />
-              <span className="font-mono text-[12px] text-warm-gray">/ hr</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Monthly plans */}
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Monthly Plans</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {[
-              { field: 'monthly1x', label: '1 Lesson / Week', desc: '4 sessions/mo' },
-              { field: 'monthly2x', label: '2 Lessons / Week', desc: '8 sessions/mo' },
-            ].map(({ field, label, desc }) => (
-              <div key={field} style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
-                <div>
-                  <p className="font-mono text-[13px] text-ink">{label}</p>
-                  <p className="font-mono text-[11px] text-warm-gray">{desc}</p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span className="font-mono text-[14px] text-warm-gray">$</span>
-                  <input
-                    type="number" min="1" step="1"
-                    value={form[field]}
-                    onChange={e => handleChange(field, e.target.value)}
-                    style={{ ...inp, maxWidth: '100px' }}
-                  />
-                  <span className="font-mono text-[12px] text-warm-gray">/ mo</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Save */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {changed && (
-          <p className="font-mono text-[11px] text-warm-gray">
-            Saving will update prices site-wide and email all past students about the change with a 3-month grandfather period.
-          </p>
-        )}
-        <button
-          onClick={handleSave}
-          disabled={saving || !changed}
-          className="btn-outline"
-          style={{ opacity: (!changed || saving) ? 0.5 : 1 }}
-        >
-          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Rate Changes'}
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // ── Store Config Panel ────────────────────────────────────────────────────────
 function StoreConfigPanel() {
@@ -3695,7 +3559,7 @@ function UsersPanel() {
     catch { return '—' }
   }
 
-  const roleColor = r => r === 'creator' ? '#1565c0' : r === 'student' ? '#7b1fa2' : '#2e7d32'
+  const roleColor = r => r === 'creator' ? '#1565c0' : '#2e7d32'
 
   if (loading) return <p className="font-mono text-[12px] text-warm-gray">Loading…</p>
 
@@ -3787,7 +3651,7 @@ function WorkshopPanel() {
 
   useEffect(() => { load() }, [])
 
-  async function addStudent() {
+  async function addAttendee() {
     const email = addEmail.trim()
     const name = addName.trim()
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
@@ -3803,7 +3667,7 @@ function WorkshopPanel() {
       setAddEmail('')
       setAddName('')
       await load()
-    } catch (err) { console.error('Add student error:', err) }
+    } catch (err) { console.error('Add attendee error:', err) }
     setAdding(false)
   }
 
@@ -3873,9 +3737,9 @@ function WorkshopPanel() {
 
   return (
     <div>
-      {/* Add student manually */}
+      {/* Add workshop attendee manually */}
       <div className="border border-dashed border-earth/40 p-4 mb-6">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-3">Add Student</p>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-3">Add Attendee</p>
         <div className="flex flex-wrap gap-2">
           <input
             type="text"
@@ -3889,12 +3753,12 @@ function WorkshopPanel() {
             type="email"
             value={addEmail}
             onChange={e => setAddEmail(e.target.value)}
-            placeholder="student@email.com"
+            placeholder="attendee@email.com"
             className="border border-warm-gray-light px-3 py-2 font-mono text-[12px] text-ink bg-cream focus:border-ink focus:outline-none"
             style={{ minWidth: '180px', flex: '2 1 180px' }}
           />
           <button
-            onClick={addStudent}
+            onClick={addAttendee}
             disabled={adding || !addEmail.trim()}
             className="font-mono text-[10px] uppercase tracking-widest border border-ink px-4 py-2 text-ink hover:bg-ink hover:text-cream transition-colors disabled:opacity-50"
           >
@@ -5585,8 +5449,6 @@ export default function AdminPage() {
             ['feedback',    'Feedback'],
             ['interviews',  'Interviews'],
             ['cd-orders',   'CD Orders'],
-            ['teaching',    'Teaching'],
-            ['students',    'Students'],
             ['config',      'Store Config'],
             ['preorders',   'Preorders'],
             ['users',       'Users'],
@@ -5644,12 +5506,6 @@ export default function AdminPage() {
 
         {/* CD Orders tab */}
         {tab === 'cd-orders' && <CDOrdersPanel />}
-
-        {/* Teaching tab */}
-        {tab === 'teaching' && <TeachingPanel />}
-
-        {/* Students tab */}
-        {tab === 'students' && <StudentsPanel />}
 
         {/* Store Config tab */}
         {tab === 'config' && <StoreConfigPanel />}

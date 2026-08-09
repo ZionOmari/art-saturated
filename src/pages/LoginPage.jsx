@@ -173,7 +173,7 @@ export default function LoginPage() {
                 Account type
               </p>
               <div style={{ display: 'flex', gap: '8px' }}>
-                {[['collector','Collector'],['creator','Creator'],['student','Student'],['both','Both']].map(([val, label]) => (
+                {[['collector','Collector'],['creator','Creator'],['both','Both']].map(([val, label]) => (
                   <button key={val} type="button" onClick={() => setAcctType(val)} style={pillBtn(acctType === val)}>
                     {label}
                   </button>

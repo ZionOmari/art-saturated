@@ -183,23 +183,6 @@ service cloud.firestore {
     match /scheduleTemplates/{templateId} {
       allow read, write: if isAdmin();
     }
-    // Monthly students — anyone can enroll (create), admin reads/manages
-    match /monthlyStudents/{studentId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
-    }
-    // Students (admin-managed roster) — admin full access; student can read own record by email
-    match /students/{studentId} {
-      allow write: if isAdmin();
-      allow read:  if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
-    }
-    // Lesson notes — admin full access; students read/write their own
-    match /lessonNotes/{noteId} {
-      allow read:   if isAdmin() || (request.auth != null && resource.data.studentEmail == request.auth.token.email);
-      allow create: if isAdmin() || (request.auth != null && request.resource.data.studentEmail == request.auth.token.email);
-      allow update: if isAdmin() || (request.auth != null && resource.data.studentEmail == request.auth.token.email);
-      allow delete: if isAdmin();
-    }
     // Blog / magazine submissions — anyone can submit; admin reviews.
     // Approved articles are public (the magazine); pending/rejected stay private.
     match /blogSubmissions/{subId} {
