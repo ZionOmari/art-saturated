@@ -9,7 +9,7 @@ import {
   sendEmailVerification,
 } from 'firebase/auth'
 import {
-  doc, setDoc, getDoc, serverTimestamp,
+  doc, setDoc, getDoc, onSnapshot, serverTimestamp,
   collection, addDoc, query, where, getDocs, orderBy,
   arrayUnion, arrayRemove,
 } from 'firebase/firestore'
@@ -34,19 +34,46 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Listen for auth state changes
+  // Listen for auth state changes, then LIVE-subscribe to the user document.
+  //
+  // This used to be a one-shot getDoc, which meant anything the server wrote
+  // never reached the UI until a full reload. Most visibly: after paying for a
+  // membership, the Stripe sync function sets artistSubActive on the user doc,
+  // but the account page kept showing "No membership" — and a second attempt to
+  // join was rejected with "you already have an active membership". Same class
+  // of bug for lifetimeSpend and any future server-owned field.
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubProfile = null
+
+    const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser)
-      if (firebaseUser) {
-        const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
-        setProfile(snap.exists() ? snap.data() : null)
-      } else {
+
+      // Drop any previous user's subscription before attaching a new one.
+      if (unsubProfile) { unsubProfile(); unsubProfile = null }
+
+      if (!firebaseUser) {
         setProfile(null)
+        setLoading(false)
+        return
       }
-      setLoading(false)
+
+      unsubProfile = onSnapshot(
+        doc(db, 'users', firebaseUser.uid),
+        (snap) => {
+          setProfile(snap.exists() ? snap.data() : null)
+          setLoading(false)
+        },
+        (err) => {
+          console.error('profile subscription failed:', err.code || err.message)
+          setLoading(false)
+        },
+      )
     })
-    return unsub
+
+    return () => {
+      if (unsubProfile) unsubProfile()
+      unsubAuth()
+    }
   }, [])
 
   async function createUserDoc(firebaseUser, extra = {}) {

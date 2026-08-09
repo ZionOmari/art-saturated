@@ -180,7 +180,7 @@ export default function GalleryUploadPage() {
       <main className="pt-[60px]" style={{ minHeight: '100vh' }}>
         <div className="max-w-xl mx-auto px-6 py-24 text-center">
           <h1 className="font-serif text-[2rem] font-normal mb-4">Sign in to upload.</h1>
-          <button className="btn-outline" onClick={() => navigate('/login')}>Sign In</button>
+          <button className="btn-outline" onClick={() => navigate('/login', { state: { from: '/gallery-upload' } })}>Sign In</button>
         </div>
         <Footer />
       </main>

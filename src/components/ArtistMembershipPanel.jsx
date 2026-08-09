@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { checkoutArtistSubscription } from '../lib/stripe'
 import { cancelMembership, resumeMembership, openBillingPortal } from '../lib/billing'
@@ -26,10 +26,18 @@ export default function ArtistMembershipPanel({ profile }) {
   const [error,  setError]  = useState(null)
   const [notice, setNotice] = useState(null)
 
+  const [searchParams] = useSearchParams()
+
   const active     = profile?.artistSubActive === true
   const status     = profile?.artistSubStatus || null
   const cancelling = profile?.artistSubCancelAtEnd === true
   const renewsOn   = fmtDate(profile?.artistSubCurrentEnd)
+
+  // Stripe sends the buyer straight back here, but activation runs on the
+  // 5-minute reconciler (the webhook is unreachable). Without this they'd land
+  // on "No membership" seconds after paying and reasonably try to pay again.
+  // The profile is a live subscription now, so this flips by itself on activation.
+  const justSubscribed = searchParams.get('subscribed') === '1' && !active
 
   async function run(kind, fn, onDone) {
     setBusy(kind); setError(null); setNotice(null)
@@ -61,7 +69,16 @@ export default function ArtistMembershipPanel({ profile }) {
         background: active ? 'rgba(58,122,64,0.05)' : '#faf8f4',
         marginBottom: '20px',
       }}>
-        {active ? (
+        {justSubscribed ? (
+          <>
+            <p style={{ ...body, color: '#b97a30' }}>Payment received — setting up your membership</p>
+            <p style={sub}>
+              This usually takes a minute or two. You don't need to do anything —
+              this page updates by itself, and we'll email you the moment uploads
+              are unlocked. Don't pay again.
+            </p>
+          </>
+        ) : active ? (
           <>
             <p style={{ ...body, color: '#3a7a40' }}>
               ✓ Artist membership active — $7.99/month
@@ -98,7 +115,7 @@ export default function ArtistMembershipPanel({ profile }) {
 
       {/* Actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-        {!active && (
+        {!active && !justSubscribed && (
           <button
             className="btn-outline"
             disabled={busy === 'join'}

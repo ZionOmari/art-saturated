@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth, normalizeTypes } from '../context/AuthContext'
 
 const STEPS = ['name', 'type', 'artist', 'done']
@@ -21,6 +22,7 @@ const pill = (active) => ({
 
 export default function ProfileSetupModal() {
   const { user, profile, updateDisplayName, updateArtistProfile, setAccountTypes, completeProfileSetup } = useAuth()
+  const navigate = useNavigate()
 
   const [step,       setStep]       = useState(0)
   const [name,       setName]       = useState(profile?.name || user?.displayName || '')
@@ -45,6 +47,13 @@ export default function ProfileSetupModal() {
       }
       return prev.includes(val) ? prev.filter(t => t !== val) : [...prev, val]
     })
+  }
+
+  // Mark setup complete (which unmounts this modal via SetupGate) and land the
+  // user on the page they actually need next.
+  async function finishTo(path) {
+    await completeProfileSetup()
+    navigate(path)
   }
 
   const isCreator = acctType.includes('creator')
@@ -146,9 +155,9 @@ export default function ProfileSetupModal() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '28px' }}>
               {[
                 ['collector', 'Collecting',      'Browse and buy art, media, and goods'],
-                ['creator',   'Creating',        'List your work — 10% commission on art sales'],
-                ['student',   'Learning',        'Book lessons and track your progress'],
-                ['both',      'Both',            'Shop and create on the platform'],
+                ['creator',   'Creating',        'Sell your work — $7.99/month, unlimited uploads'],
+                ['student',   'Learning',        'Book sessions and track your progress'],
+                ['both',      'Both',            'Shop and sell on the platform'],
               ].map(([val, label, hint]) => (
                 <button key={val} onClick={() => toggleType(val)} style={{ ...pill(pillActive(val)), textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px', padding: '12px 16px' }}>
                   <span>{label}</span>
@@ -206,7 +215,10 @@ export default function ProfileSetupModal() {
           </>
         )}
 
-        {/* ── Done step ── */}
+        {/* ── Done step ──
+            Previously a dead end: it told creators to "submit your work" but gave
+            no way to do it, dropping them wherever they happened to be. Now the
+            primary button takes each account type straight to its next action. */}
         {current === 'done' && (
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontSize: '2.5rem', marginBottom: '16px' }}>✦</p>
@@ -214,11 +226,25 @@ export default function ProfileSetupModal() {
               You're all set{name ? `, ${name.split(' ')[0]}` : ''}.
             </h2>
             <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#7a5030', marginBottom: '32px', lineHeight: 1.7 }}>
-              Welcome to Art Saturated. Explore the shop, discover artists, or submit your work.
+              {isCreator
+                ? 'Next: start uploading your work. Listing runs on a $7.99/month membership — unlimited uploads, no per-listing fees.'
+                : 'Welcome to Art Saturated. Have a look around the shop.'}
             </p>
-            <button onClick={() => completeProfileSetup()} className="btn-outline" style={{ minWidth: '160px' }}>
-              Let's go
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+              <button
+                onClick={() => finishTo(isCreator ? '/gallery-upload' : '/shop')}
+                className="btn-outline"
+                style={{ minWidth: '200px' }}
+              >
+                {isCreator ? 'Start uploading →' : 'Browse the shop →'}
+              </button>
+              <button
+                onClick={() => completeProfileSetup()}
+                style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', background: 'none', border: 'none', cursor: 'pointer', letterSpacing: '0.1em', textTransform: 'uppercase' }}
+              >
+                {isCreator ? 'Maybe later' : 'Close'}
+              </button>
+            </div>
           </div>
         )}
       </div>

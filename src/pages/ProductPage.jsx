@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { doc, getDoc, collection, query, where, limit, getDocs } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useCart } from '../context/CartContext'
@@ -313,6 +313,7 @@ function ReviewSection({ productId }) {
 export default function ProductPage() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [product,    setProduct]    = useState(null)
   const [loading,    setLoading]    = useState(true)
   const [shipTiers,  setShipTiers]  = useState(DEFAULT_SHIP_TIERS)
@@ -382,7 +383,8 @@ export default function ProductPage() {
   }
 
   async function handleWishlist() {
-    if (!user) { navigate('/account'); return }
+    // Return to this product after sign-in rather than dumping them on /account.
+    if (!user) { navigate('/login', { state: { from: location.pathname } }); return }
     if (inWishlist(product.id)) {
       await removeFromWishlist(product.id)
       setWishlisted(false)
@@ -401,7 +403,7 @@ export default function ProductPage() {
 
   // ── Deposit handler ────────────────────────────────────────────────────────
   async function handleDeposit() {
-    if (!user) { navigate('/account'); return }
+    if (!user) { navigate('/login', { state: { from: location.pathname } }); return }
     setDepositBusy(true)
     setDepositError(null)
     try {
