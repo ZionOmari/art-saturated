@@ -8,7 +8,6 @@ import Footer from '../components/Footer'
 import ProfileAvatar from '../components/ProfileAvatar'
 import Spinner from '../components/Spinner'
 import MessageThread from '../components/MessageThread'
-import MysteryPreferencesPanel, { DEFAULT_MYSTERY_PREFS } from '../components/MysteryPreferencesPanel'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
 
 // ── Shared input style ────────────────────────────────────────────────────────
@@ -266,15 +265,6 @@ function Profile() {
   const [collectorRequests,  setCollectorRequests]  = useState([])
   const [collReqLoading,     setCollReqLoading]     = useState(false)
   const [openThreadId,       setOpenThreadId]       = useState(null)
-  const [mysteryPrefs,    setMysteryPrefs]    = useState({ ...DEFAULT_MYSTERY_PREFS })
-  const [mysteryPrefsSaved,   setMysteryPrefsSaved]   = useState(false)
-  const [mysteryPrefsSaving,  setMysteryPrefsSaving]  = useState(false)
-
-  useEffect(() => {
-    if (profile?.mysteryPreferences) {
-      setMysteryPrefs(prev => ({ ...DEFAULT_MYSTERY_PREFS, ...profile.mysteryPreferences, size: prev.size }))
-    }
-  }, [profile?.mysteryPreferences]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchOrders().then(setOrders).catch(() => {}) }, [])
   useEffect(() => {
@@ -345,17 +335,6 @@ function Profile() {
     await updateDisplayName(displayName.trim())
     setNameSaved(true)
     setTimeout(() => setNameSaved(false), 1600)
-  }
-
-  async function saveMysteryPrefs() {
-    setMysteryPrefsSaving(true)
-    try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        mysteryPreferences: { ...mysteryPrefs, savedAt: new Date().toISOString() },
-      })
-      setMysteryPrefsSaved(true)
-      setTimeout(() => setMysteryPrefsSaved(false), 2000)
-    } finally { setMysteryPrefsSaving(false) }
   }
 
   async function handleSavePrefs() {
@@ -446,7 +425,6 @@ function Profile() {
         <button style={tabBtn(tab === 'wishlist')}    onClick={() => setTab('wishlist')}>Wishlist</button>
         <button style={tabBtn(tab === 'requests')}   onClick={() => setTab('requests')}>My Requests</button>
         <button style={tabBtn(tab === 'settings')}    onClick={() => setTab('settings')}>Settings</button>
-        <button style={tabBtn(tab === 'mystery')}     onClick={() => setTab('mystery')}>Mystery Profile</button>
         {isOwner && (
           <button
             style={{ ...tabBtn(false), borderColor: '#b97a30', color: '#b97a30' }}
@@ -1125,39 +1103,6 @@ function Profile() {
         </>
       )}
 
-      {/* ── Mystery Profile ─────────────────────────────────────────── */}
-      {tab === 'mystery' && (
-        <>
-          <p style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-warm-gray))', marginBottom: '8px' }}>Mystery Profile</p>
-          <p style={{ fontFamily: 'serif', fontSize: '1.5rem', fontWeight: 400, color: 'rgb(var(--color-ink))', marginBottom: '6px' }}>Your Record Preferences</p>
-          <p style={{ fontFamily: 'monospace', fontSize: '12px', color: 'rgb(var(--color-warm-gray))', marginBottom: '32px', lineHeight: 1.6 }}>
-            These preferences are used when you order a Mystery Record or Mystery Crate. Save them here so you don't have to re-enter them each time.
-          </p>
-
-          <MysteryPreferencesPanel
-            prefs={mysteryPrefs}
-            onChange={setMysteryPrefs}
-            showScale={true}
-          />
-
-          <div style={{ marginTop: '32px' }}>
-            <button
-              onClick={saveMysteryPrefs}
-              disabled={mysteryPrefsSaving}
-              className="btn-outline"
-              style={{ display: 'inline-block' }}
-            >
-              {mysteryPrefsSaving ? 'Saving…' : mysteryPrefsSaved ? 'Saved ✓' : 'Save Mystery Preferences'}
-            </button>
-          </div>
-
-          {profile?.mysteryPreferences?.savedAt && (
-            <p style={{ fontFamily: 'monospace', fontSize: '10px', color: 'rgb(var(--color-warm-gray))', marginTop: '12px' }}>
-              Last saved {new Date(profile.mysteryPreferences.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
-          )}
-        </>
-      )}
     </div>
   )
 }

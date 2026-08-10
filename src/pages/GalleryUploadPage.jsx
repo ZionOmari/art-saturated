@@ -363,6 +363,28 @@ export default function GalleryUploadPage() {
                         textAlign: 'center', padding: 4,
                       }}>ADD TO THIS PIECE</div>
                     )}
+
+                    {/* Touch equivalent of dragging onto this card. Drag events
+                        never fire on touch, so without this a phone user cannot
+                        group several photos into one piece at all — and most
+                        artists upload from a phone. */}
+                    <label
+                      style={{
+                        width: 62, height: 62, display: 'grid', placeItems: 'center',
+                        border: '1px dashed rgb(var(--color-warm-gray-light))',
+                        cursor: 'pointer', textAlign: 'center', padding: 4,
+                        fontFamily: 'monospace', fontSize: 9, lineHeight: 1.3,
+                        color: 'rgb(var(--color-warm-gray))',
+                      }}
+                    >
+                      <input
+                        type="file" accept="image/*" multiple
+                        onChange={e => { addFiles(e.target.files, piece.id); e.target.value = '' }}
+                        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                      />
+                      <span aria-hidden>＋</span>
+                      <span className="sr-only">Add more photos of {piece.title || 'this piece'}</span>
+                    </label>
                   </div>
 
                   <input
