@@ -4,15 +4,18 @@ import { db } from '../lib/firebase'
 
 /**
  * MessageThread
- * Real-time message thread for a commission request.
+ * Real-time message thread, used for commission requests and for buyer↔shop
+ * conversations attached to an order.
  *
  * Props:
- *   requestId    – Firestore commissionRequests doc ID
+ *   requestId        – parent document ID
+ *   parentCollection – collection that document lives in
+ *                      ('commissionRequests' | 'orders')
  *   currentUid   – logged-in user's UID
  *   currentName  – display name for sent messages
  *   role         – 'artist' | 'collector'
  */
-export default function MessageThread({ requestId, currentUid, currentName, role }) {
+export default function MessageThread({ requestId, currentUid, currentName, role, parentCollection = 'commissionRequests' }) {
   const [messages, setMessages] = useState([])
   const [text,     setText]     = useState('')
   const [sending,  setSending]  = useState(false)
@@ -22,13 +25,13 @@ export default function MessageThread({ requestId, currentUid, currentName, role
   useEffect(() => {
     if (!requestId) return
     const q = query(
-      collection(db, 'commissionRequests', requestId, 'messages'),
+      collection(db, parentCollection, requestId, 'messages'),
       orderBy('createdAt', 'asc'),
     )
     return onSnapshot(q, snap => {
       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     }, () => {}) // silently ignore permission errors on closed threads
-  }, [requestId])
+  }, [requestId, parentCollection])
 
   // ── Auto-scroll to latest message ───────────────────────────────────────────
   useEffect(() => {
@@ -42,7 +45,7 @@ export default function MessageThread({ requestId, currentUid, currentName, role
     if (!trimmed || sending) return
     setSending(true)
     try {
-      await addDoc(collection(db, 'commissionRequests', requestId, 'messages'), {
+      await addDoc(collection(db, parentCollection, requestId, 'messages'), {
         text:       trimmed,
         senderUid:  currentUid,
         senderName: currentName || 'Unknown',

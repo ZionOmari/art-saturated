@@ -66,6 +66,20 @@ service cloud.firestore {
         && request.resource.data.paymentStatus == 'pending';
       allow update: if isAdmin();
       allow delete: if isAdmin();
+
+      // Buyer ↔ shop thread about this order ("where is my package?").
+      // Readable and writable by the buyer who owns the order and by the shop.
+      // Messages are immutable once sent, so neither side can rewrite history.
+      match /messages/{msgId} {
+        allow read: if request.auth != null &&
+          (get(/databases/$(database)/documents/orders/$(orderId)).data.uid == request.auth.uid
+           || isAdmin());
+        allow create: if request.auth != null
+          && request.resource.data.senderUid == request.auth.uid
+          && (get(/databases/$(database)/documents/orders/$(orderId)).data.uid == request.auth.uid
+              || isAdmin());
+        allow update, delete: if false;
+      }
     }
     // Stripe payments that arrived with no matching order doc — written by the
     // webhook (Admin SDK bypasses rules), read by the owner for reconciliation.

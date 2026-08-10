@@ -101,6 +101,44 @@ describe('orders', () => {
   })
 })
 
+describe('order messages (buyer ↔ shop)', () => {
+  const MSG = { text: 'Where is my package?', senderUid: 'buyer1', senderName: 'Test Buyer', role: 'buyer' }
+
+  it('lets the order owner send and read messages', async () => {
+    await seed('orders/o10', ORDER)
+    await assertSucceeds(setDoc(doc(buyer(), 'orders/o10/messages/m1'), MSG))
+    await assertSucceeds(getDoc(doc(buyer(), 'orders/o10/messages/m1')))
+  })
+
+  it('lets the shop reply on any order', async () => {
+    await seed('orders/o11', ORDER)
+    await assertSucceeds(setDoc(doc(owner(), 'orders/o11/messages/m1'), {
+      ...MSG, senderUid: 'ownerUid', role: 'shop',
+    }))
+  })
+
+  it("blocks a stranger reading or writing someone else's order thread", async () => {
+    await seed('orders/o12', ORDER)
+    await seed('orders/o12/messages/m1', MSG)
+    await assertFails(getDoc(doc(seller(), 'orders/o12/messages/m1')))
+    await assertFails(setDoc(doc(seller(), 'orders/o12/messages/m2'), { ...MSG, senderUid: 'seller1' }))
+  })
+
+  it('stops anyone forging a message as another sender', async () => {
+    await seed('orders/o13', ORDER)
+    await assertFails(setDoc(doc(buyer(), 'orders/o13/messages/m1'), { ...MSG, senderUid: 'someone-else' }))
+  })
+
+  it('makes sent messages immutable', async () => {
+    // Neither side gets to rewrite what was said.
+    await seed('orders/o14', ORDER)
+    await seed('orders/o14/messages/m1', MSG)
+    await assertFails(updateDoc(doc(buyer(), 'orders/o14/messages/m1'), { text: 'edited' }))
+    await assertFails(updateDoc(doc(owner(), 'orders/o14/messages/m1'), { text: 'edited' }))
+    await assertFails(deleteDoc(doc(owner(), 'orders/o14/messages/m1')))
+  })
+})
+
 describe('payment bookkeeping collections', () => {
   it('makes stripeSessions locks unwritable by every client, including the owner', async () => {
     // Written only by Cloud Functions, which bypass rules entirely.

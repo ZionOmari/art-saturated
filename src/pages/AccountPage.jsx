@@ -8,6 +8,7 @@ import Footer from '../components/Footer'
 import ProfileAvatar from '../components/ProfileAvatar'
 import Spinner from '../components/Spinner'
 import MessageThread from '../components/MessageThread'
+import OrderThread from '../components/OrderThread'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
 
 // ── Shared input style ────────────────────────────────────────────────────────
@@ -522,6 +523,13 @@ function Profile() {
                         </li>
                       ))}
                     </ul>
+
+                    {/* Somewhere to ask "where is my package?" without leaving
+                        the site. Paid orders only — an abandoned checkout has
+                        nothing to discuss. */}
+                    {!isUnpaid(o) && (
+                      <OrderThread order={o} user={user} profile={profile} />
+                    )}
                   </li>
                 ))}
               </ul>

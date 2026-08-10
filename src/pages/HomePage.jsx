@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Footer from '../components/Footer'
+import Walkthrough from '../components/Walkthrough'
 import ArtCarousel from '../components/ArtCarousel'
 import FloatingProductColumn from '../components/FloatingProductColumn'
 import { fetchAllProducts } from '../data/storage'
@@ -154,6 +155,9 @@ export default function HomePage() {
         )}
       </section>
       </div>{/* end hero wrapper */}
+
+      {/* ── First-visit walkthrough (buy / sell) ─────────────── */}
+      <Walkthrough />
 
       {/* ── Featured art slideshow ───────────────────────────── */}
       <ArtCarousel />

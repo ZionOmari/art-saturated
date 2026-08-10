@@ -1287,6 +1287,48 @@ exports.onCommissionRequestCreated = functions.firestore
     return null
   })
 
+// ── Firestore: new message on an order → notify the other party ──────────────
+// Buyer ↔ shop thread attached to an order. Whoever did NOT send it gets an
+// email, so a question doesn't sit unread in a tab nobody has open.
+exports.onOrderMessage = functions.firestore
+  .document('orders/{orderId}/messages/{msgId}')
+  .onCreate(async (snap, ctx) => {
+    const msg = snap.data() || {}
+    const orderSnap = await admin.firestore().doc(`orders/${ctx.params.orderId}`).get()
+    if (!orderSnap.exists) return null
+    const order = orderSnap.data()
+    const ref = `#${ctx.params.orderId.slice(-6).toUpperCase()}`
+
+    if (msg.role === 'shop') {
+      if (!order.email) return null
+      await sendEmail(
+        order.email,
+        `Reply about your order ${ref} — Art Saturated`,
+        fmtEmail(order.name, [
+          'We replied about your order:',
+          '',
+          `  "${msg.text}"`,
+          '',
+          `Reply here: ${CLIENT_URL}/account`,
+        ]),
+      ).catch(e => console.error('Order reply email failed:', e.message))
+    } else {
+      await sendEmail(
+        OWNER_EMAIL,
+        `Question on order ${ref} — ${order.name || order.email || 'buyer'}`,
+        [
+          `${msg.senderName || 'The buyer'} asked about order ${ref}:`,
+          '',
+          `  "${msg.text}"`,
+          '',
+          `Buyer: ${order.email || '—'}`,
+          `Reply: ${CLIENT_URL}/admin`,
+        ].join('\n'),
+      ).catch(e => console.error('Order question email failed:', e.message))
+    }
+    return null
+  })
+
 // ── Firestore: New commission thread message → notify the other party ─────────
 exports.onCommissionMessage = functions.firestore
   .document('commissionRequests/{reqId}/messages/{msgId}')

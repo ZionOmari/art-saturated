@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Spinner from '../components/Spinner'
+import OrderThread from '../components/OrderThread'
 import StylePicker from '../components/StylePicker'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -433,6 +434,7 @@ function SpotlightGenerator({ onGenerated }) {
 
 // ── Orders Panel ─────────────────────────────────────────────────────────────
 function OrdersPanel() {
+  const { user, profile } = useAuth()
   const [orders,      setOrders]      = useState([])
   const [commissions, setCommissions] = useState([])
   const [loading,     setLoading]     = useState(true)
@@ -724,6 +726,9 @@ function OrdersPanel() {
                   )}
                 </div>
               ))}
+
+              {/* Buyer conversation about this order */}
+              <OrderThread order={order} user={user} profile={profile} />
 
               {/* Ship deadline (active non-terminal only) */}
               {!order.archived && !['cancelled', 'completed', 'shipped'].includes(order.status) && (
