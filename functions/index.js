@@ -1187,53 +1187,6 @@ exports.onOrderStatusChanged = functions.firestore
     return null
   })
 
-// ── Firestore: New event published → notify opted-in users ───────────────────
-exports.onEventPublished = functions
-  .runWith({ timeoutSeconds: 120 })
-  .firestore
-  .document('events/{eventId}')
-  .onCreate(async (snap) => {
-    initSG()
-    const ev = snap.data()
-    if (!ev.approved) return null          // safety check — only notify for live events
-
-    const db    = admin.firestore()
-    const users = await db.collection('users').where('notifyEvents', '==', true).get()
-    if (users.empty) return null
-
-    const dateStr = ev.date
-      ? new Date(ev.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-      : ''
-    const timeStr = ev.startTime ? ` · ${ev.startTime}${ev.endTime ? ' – ' + ev.endTime : ''}` : ''
-    const subject = `New Event: ${ev.title} — Art Saturated`
-    const body    = [
-      `A new event has been added to the Art Saturated calendar!`,
-      ``,
-      `${ev.title}`,
-      dateStr ? `${dateStr}${timeStr}` : '',
-      ev.eventType ? `Type: ${ev.eventType}` : '',
-      ev.location  ? `Where: ${ev.location}` : '',
-      ev.entryFee  ? `Entry: ${ev.entryFee}` : '',
-      ev.description ? `\n${ev.description}` : '',
-      ``,
-      `View the full calendar: ${CLIENT_URL}/events`,
-      ``,
-      `— Art Saturated`,
-      ``,
-      `To stop receiving event notifications, visit your account settings at ${CLIENT_URL}/account`,
-    ].filter(l => l !== null && l !== undefined).join('\n')
-
-    const sends = users.docs.map(doc => {
-      const u = doc.data()
-      if (!u.email) return Promise.resolve()
-      return sendEmail(u.email, subject, body)
-        .catch(e => console.error(`Failed to notify ${u.email}:`, e))
-    })
-
-    await Promise.all(sends)
-    return null
-  })
-
 // ── Firestore: Submission approved/rejected → notify artist ───────────────────
 exports.onSubmissionStatusChanged = functions.firestore
   .document('submissions/{submissionId}')
@@ -1297,60 +1250,6 @@ exports.onSubmissionStatusChanged = functions.firestore
           '',
           "You're welcome to revise and resubmit at any time.",
         ]),
-      ).catch(console.error)
-    }
-
-    return null
-  })
-
-// ── Firestore: Event submission approved/denied → notify organizer ────────────
-exports.onEventSubmissionChanged = functions.firestore
-  .document('eventSubmissions/{subId}')
-  .onUpdate(async (change) => {
-    initSG()
-    const before = change.before.data(), after = change.after.data()
-    if (before.status === after.status) return null
-    if (!after.submitterEmail) return null
-
-    if (after.status === 'approved') {
-      const dateStr = after.date
-        ? new Date(after.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        : ''
-      const timeStr = after.startTime
-        ? ` · ${after.startTime}${after.endTime ? ' – ' + after.endTime : ''}`
-        : ''
-      await sendEmail(
-        after.submitterEmail,
-        `Your Event Was Approved — "${after.title}"`,
-        [
-          `Hey ${after.submittedBy || 'there'},`,
-          ``,
-          `Great news — your event has been approved and is now live on the Art Saturated calendar!`,
-          ``,
-          `  ${after.title}`,
-          dateStr ? `  ${dateStr}${timeStr}` : '',
-          after.location ? `  Where: ${after.location}` : '',
-          ``,
-          `View it here: ${CLIENT_URL}/events`,
-          ``,
-          `— Art Saturated`,
-        ].filter(l => l !== null && l !== undefined).join('\n'),
-      ).catch(console.error)
-    }
-
-    if (after.status === 'denied') {
-      await sendEmail(
-        after.submitterEmail,
-        `Event Submission Update — Art Saturated`,
-        [
-          `Hey ${after.submittedBy || 'there'},`,
-          ``,
-          `Thank you for submitting "${after.title}" to the Art Saturated calendar.`,
-          ``,
-          `We weren't able to approve this event at this time. Feel free to reach out if you have questions.`,
-          ``,
-          `— Art Saturated`,
-        ].join('\n'),
       ).catch(console.error)
     }
 
@@ -1971,41 +1870,6 @@ Return ONLY valid JSON with this exact shape:
 // Admin-triggered on-demand generation.
 // (On-demand SEO generation is dispatched via onAiRequestCreated below.)
 
-// Weekly scheduled generation — rotates through settings/seoConfig.topics.
-exports.generateScheduledSeoArticle = functions
-  .runWith({ timeoutSeconds: 120 })
-  .pubsub
-  .schedule('0 10 * * 1')          // Mondays 10 AM
-  .timeZone('America/Chicago')
-  .onRun(async () => {
-    const db   = admin.firestore()
-    const ref  = db.doc('settings/seoConfig')
-    const snap = await ref.get()
-    const cfg  = snap.exists ? snap.data() : {}
-    const topics = Array.isArray(cfg.topics) ? cfg.topics.filter(t => (t || '').trim()) : []
-
-    if (topics.length === 0) { console.log('[seo cron] no topics configured — skipping'); return null }
-
-    const quota = await checkSeoQuota(db)
-    if (!quota.ok) { console.log(`[seo cron] ${quota.reason} — skipping`); return null }
-
-    const budget = await checkAiBudget(db)
-    if (!budget.ok) { console.log(`[seo cron] ${budget.reason} — skipping`); return null }
-
-    const cursor = Number(cfg.topicCursor) || 0
-    const topic  = topics[cursor % topics.length]
-
-    try {
-      const res = await generateSeoArticleDoc(topic, db, 'seo-ai-scheduled')
-      await recordAiUsage(db, 'seo')
-      await ref.set({ topicCursor: (cursor + 1) % topics.length }, { merge: true })
-      console.log(`[seo cron] generated draft "${res.title}" (${res.used}/${res.quota})`)
-    } catch (err) {
-      console.error('[seo cron] generation failed:', err.message)
-    }
-    return null
-  })
-
 // ── AI: Artist Spotlight generator ────────────────────────────────────────────
 // Admin picks a public artist; we pull their profile + work and draft a warm
 // feature for the magazine review queue. Each becomes a crawlable landing page
@@ -2263,100 +2127,6 @@ exports.notifyFeedback = functions.firestore.document('feedback/{id}').onCreate(
   return null
 })
 
-// AI-generated draft landed in the review queue → ping Zion.
-exports.notifyAiDraft = functions.firestore.document('blogSubmissions/{id}').onCreate(async (snap) => {
-  try {
-    const d = snap.data() || {}
-    const isAi = d.source && (d.source.startsWith('seo-ai') || d.source === 'artist-spotlight' || d.source === 'interview')
-    if (!isAi) return null
-    initSG()
-    await sendEmail(OWNER_EMAIL, 'AI draft ready to review — Art Saturated', fmtEmail('Zion', [
-      'A new AI draft just landed in your Magazine review queue:',
-      '',
-      `  "${d.title || 'Untitled'}"  (${d.source})`,
-      '',
-      `Review & approve: ${CLIENT_URL}/admin?tab=blog`,
-    ]))
-  } catch (e) { console.error('notifyAiDraft:', e.message) }
-  return null
-})
-
-// Interview invite — sent server-side via SendGrid (modern, reliable).
-// Replaces the old client-side EmailJS send. Fires on create, and again when
-// a resend is requested (resendAt bumped). Ignores the artist's own response edits.
-exports.onInterviewWrite = functions.firestore.document('interviews/{token}').onWrite(async (change, ctx) => {
-  const after = change.after.exists ? change.after.data() : null
-  if (!after || after.status !== 'invited' || !after.artistEmail) return null
-  const before = change.before.exists ? change.before.data() : null
-  const isNew  = !before
-  const tsVal  = t => (t && t.seconds != null) ? t.seconds : (t || 0)
-  const resendBumped = before && tsVal(after.resendAt) !== tsVal(before.resendAt) && after.resendAt
-  if (!isNew && !resendBumped) return null
-  try {
-    initSG()
-    const firstName = (after.artistName || 'friend').split(' ')[0]
-    const link = `${CLIENT_URL}/interview/${ctx.params.token}`
-    await sendEmail(after.artistEmail, "You've been invited for an Art Saturated feature", fmtEmail(firstName, [
-      `We'd love to feature you on Art Saturated. There are a few questions below — answer as much or as little as you'd like. Your own words are the whole point.`,
-      after.notes ? `\nA note from us:\n${after.notes}\n` : '',
-      `Fill out your interview here:`,
-      `  ${link}`,
-      ``,
-      `There's no deadline — take your time with it.`,
-    ]))
-  } catch (e) { console.error('onInterviewWrite email failed:', e.message) }
-  return null
-})
-
-// Daily push: 8 site-aligned content ideas (how-tos, SEO, content-filling).
-exports.dailyContentIdeas = functions
-  .runWith({ timeoutSeconds: 120, memory: '512MB' })
-  .pubsub.schedule('0 8 * * *').timeZone('America/Chicago')
-  .onRun(async () => {
-    const db = admin.firestore()
-    const budget = await checkAiBudget(db)
-    if (!budget.ok) { console.log(`[ideas] ${budget.reason} — skipping`); return null }
-
-    const prompt = `You are the content strategist for Art Saturated, an independent art shop & marketplace in Fort Wayne, Indiana — original local art, commissions, vinyl & physical media, vintage tech, handmade goods, a community events calendar, an artist directory, and a magazine.
-
-Generate exactly 8 fresh content ideas for the magazine, balanced across:
-- HOW-TOs (e.g. starting an art collection, caring for vinyl, framing work)
-- SEO / local plays (target real searches like "Fort Wayne art", "buy original art Fort Wayne", "where to sell art locally")
-- CONTENT-FILLING (artist features, behind-the-scenes, buying guides, scene roundups)
-
-Every idea must be specific and genuinely useful — no vague filler, no repeats. Return ONLY valid JSON:
-{ "ideas": [ { "title": "...", "type": "how-to|seo|content", "angle": "one-sentence hook" } ] }`
-
-    let ideas = []
-    try {
-      const raw = await geminiText({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: { responseMimeType: 'application/json', temperature: 0.9, maxOutputTokens: 1024 },
-      })
-      ideas = (JSON.parse(raw).ideas) || []
-    } catch (err) {
-      console.error('[ideas] generation failed:', err.message)
-      return null
-    }
-    if (ideas.length === 0) return null
-
-    await recordAiUsage(db, 'ideas')
-    const today = new Date().toISOString().slice(0, 10)
-    await db.doc(`contentIdeas/${today}`).set({ ideas, createdAt: FieldValue.serverTimestamp() }).catch(() => {})
-
-    initSG()
-    const lines = ['Your 8 content ideas for today:', '']
-    ideas.slice(0, 8).forEach((it, i) => {
-      lines.push(`${i + 1}. [${(it.type || '').toUpperCase()}] ${it.title}`)
-      if (it.angle) lines.push(`   ${it.angle}`)
-      lines.push('')
-    })
-    lines.push(`Turn any into a draft in the Magazine tab: ${CLIENT_URL}/admin?tab=blog`)
-    await sendEmail(OWNER_EMAIL, '8 content ideas — Art Saturated', fmtEmail('Zion', lines))
-      .catch(e => console.error('[ideas] email:', e.message))
-    return null
-  })
-
 // ── Scheduled: 3 AM nightly maintenance digest ────────────────────────────────
 // Summarises pending items and surfaces the monthly dep-review reminder.
 // Dep audits can't run in Cloud Functions (no npm); use `npm run check-deps`
@@ -2575,60 +2345,6 @@ exports.onBookingCreated = functions.firestore
 
     return null
   })
-
-// ── Workshop confirmation email ───────────────────────────────────────────────
-exports.sendWorkshopConfirmation = functions.https.onCall(async (data, context) => {
-  initSG()
-  const { rsvpId, level } = data
-  if (!rsvpId || !level) throw new functions.https.HttpsError('invalid-argument', 'rsvpId and level are required')
-
-  const snap = await admin.firestore().collection('workshopRsvps').doc(rsvpId).get()
-  if (!snap.exists) throw new functions.https.HttpsError('not-found', 'RSVP not found')
-
-  const rsvp = snap.data()
-
-  await sendEmail(
-    rsvp.email,
-    `Workshop Confirmed — Level ${level} — Exploring Deep States of Consciousness`,
-    fmtEmail(rsvp.name, [
-      `You've been accepted into the Exploring Deep States of Consciousness Workshop!`,
-      ``,
-      `Your Level:  ${level}`,
-      `Format:      Live on Google Meet`,
-      `Schedule:    4:30 PM ET — 3 consecutive weeks`,
-      `Length:      1 hour — 15-min Q&A within or after the session`,
-      ``,
-      `── Dates ──`,
-      `Level 1:  Tuesday, July 1 — 4:30 PM ET`,
-      `Level 2:  Wednesday, July 8 — 4:30 PM ET`,
-      `Level 3:  Wednesday, July 15 — 4:30 PM ET`,
-      ``,
-      `── Google Meet Links ──`,
-      `Level 1 (Jul 1):   https://meet.google.com/aty-fpji-tja`,
-      `Level 2 (Jul 8):   https://meet.google.com/zgy-fcnt-msz`,
-      `Level 3 (Jul 15):  https://meet.google.com/vxt-tgrs-ddz`,
-      ``,
-      `── Donation (pay what feels right) ──`,
-      `Cash App:  https://cash.app/$artsaturated`,
-      `Venmo:     https://venmo.com/zionomari`,
-      ``,
-      `If you have any questions, reply to this email.`,
-    ], '— Art Saturated'),
-  )
-
-  await sendEmail(
-    OWNER_EMAIL,
-    `Workshop Level Assigned — ${rsvp.name || rsvp.email}`,
-    [
-      `Workshop RSVP assigned to Level ${level}:`,
-      `Name:       ${rsvp.name || '—'}`,
-      `Email:      ${rsvp.email}`,
-      `Experience: ${(rsvp.experience || '—').slice(0, 500)}`,
-    ].join('\n'),
-  )
-
-  return { success: true }
-})
 
 // ── Firestore: Workshop RSVP submitted → notify Zion ────────────────────────
 exports.onWorkshopRsvpCreated = functions.firestore
