@@ -56,7 +56,7 @@ code path already exists and needs no changes.
 
 | Gap | Notes |
 |---|---|
-| `downloadPath` has no admin file picker | Digital products need the Storage path pasted in by hand |
+| Preview-clip uploader is in the wrong category block | The Track Previews field renders only when Category = Art, so an album (`Physical Media`) can't get preview clips at all. One-line move in `AdminPage.jsx` |
 | Weightless products ship free | `calcShipping` returns 0 when `weightOz` is unset. Cart copy is honest about it, but decide whether it's intended or a data gap |
 | Existing users carry stale `isPartner` / `student` fields | Inert — nothing reads them, rules keep them locked. Cosmetic cleanup only |
 | Admin `AdminPage.jsx` is ~600 KB | Owner-only page, so no customer impact. Split if it ever gets annoying |
@@ -96,6 +96,13 @@ Firebase refuses to delete functions you removed from source. Delete explicitly:
 **Tests:** `npm test` (35 tests, vitest + Firestore emulator). **Never start the
 functions emulator in tests** — `functions/.env` holds live Stripe and Gmail
 credentials and triggers would fire for real.
+
+**Paid downloads:** the product form has a "Paid Download" field (all categories).
+It uploads to `releases/<slug>/`, which is admin-only in `storage.rules`, and
+stores the **path** — never a download URL, because a `getDownloadURL` token is
+permanent and public. It can also list and reuse files already in `releases/`.
+The buyer's link is signed at settlement and emailed; there is still no download
+button, because callables are 403.
 
 **Images:** uploads are downscaled to 1600px and cached for a year automatically.
 If images ever get added outside the app, re-run

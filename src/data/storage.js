@@ -3,7 +3,7 @@ import {
   doc, query, orderBy, where, limit as limitQ,
   serverTimestamp, runTransaction, setDoc,
 } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, listAll, getMetadata } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 
 // ── Draft helpers (localStorage, never stores image data) ────────────────────
@@ -169,6 +169,52 @@ export async function uploadProductAudio(file) {
   const path = `products/audio/${Date.now()}_${file.name.replace(/\s+/g, '_')}`
   const snap = await uploadBytes(ref(storage, path), file)
   return getDownloadURL(snap.ref)
+}
+
+// ── Paid release upload / browse ─────────────────────────────────────────────
+// The file a buyer receives after paying. It lives under `releases/`, which is
+// admin-only in storage.rules — no client, buyer included, can read it. Only the
+// PATH is stored on the product; settlement signs a 30-day URL server-side. Do
+// not switch this to getDownloadURL: that token is permanent and public.
+//
+// Release files are whole albums, not preview clips, so this uses a resumable
+// upload and reports progress — a 400 MB upload with no feedback reads as frozen.
+export function uploadRelease(file, slug, onProgress) {
+  const folder = slugify(slug || '') || 'misc'
+  const path   = `releases/${folder}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`
+  const task   = uploadBytesResumable(ref(storage, path), file, {
+    contentType: file.type || 'application/octet-stream',
+  })
+  return new Promise((resolve, reject) => {
+    task.on(
+      'state_changed',
+      snap => onProgress?.(snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0),
+      reject,
+      () => resolve(path),
+    )
+  })
+}
+
+// Every file under releases/, newest first, so a product can point at a file that
+// was already uploaded (a two-format listing sharing one download, say). Listing
+// is an admin-only read — a buyer calling this gets a permission error.
+export async function listReleases() {
+  const files = []
+  async function walk(dirRef) {
+    const res = await listAll(dirRef)
+    for (const prefix of res.prefixes) await walk(prefix)
+    for (const item of res.items) {
+      const meta = await getMetadata(item).catch(() => null)
+      files.push({
+        path:    item.fullPath,
+        name:    item.name,
+        size:    meta?.size ? Number(meta.size) : null,
+        updated: meta?.updated || null,
+      })
+    }
+  }
+  await walk(ref(storage, 'releases'))
+  return files.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))
 }
 
 // ── Slug helper ───────────────────────────────────────────────────────────────

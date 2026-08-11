@@ -5,7 +5,7 @@ import StylePicker from '../components/StylePicker'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIES } from '../data/products'
-import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
+import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, uploadRelease, listReleases, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
 import CropModal   from '../components/CropModal'
 import AvailabilityManager from '../components/AvailabilityManager'
 import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, increment, writeBatch } from 'firebase/firestore'
@@ -95,6 +95,13 @@ const BLANK = {
   image:    null,
   imageURL: null,
   emoji: '🖼️',
+}
+
+function formatBytes(n) {
+  if (!n && n !== 0) return ''
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 const SLOT_LABELS = {
@@ -2407,6 +2414,10 @@ export default function AdminPage() {
   const [publishBusy,  setPublishBusy]  = useState(false)
   const [publishError, setPublishError] = useState('')
   const [audioBusy,    setAudioBusy]    = useState(false)
+  const [releasePct,   setReleasePct]   = useState(null)   // upload % while a paid download uploads
+  const [releaseError, setReleaseError] = useState('')
+  const [releaseList,  setReleaseList]  = useState(null)   // null = picker closed, [] = empty
+  const [releaseListBusy, setReleaseListBusy] = useState(false)
   const [cropPending,  setCropPending]  = useState(null)  // { file, preview, title? }
   const [cropSlotIdx,  setCropSlotIdx]  = useState(0)
   const [photoSlots,   setPhotoSlots]   = useState([{ preview: null, url: null, uploading: false }])
@@ -2728,6 +2739,8 @@ export default function AdminPage() {
     }
     setEditId(null)
     setPublishError('')
+    setReleaseError('')
+    setReleaseList(null)
     setPhotoSlots([{ preview: null, url: null, uploading: false }])
     setView('add')
   }
@@ -2746,6 +2759,8 @@ export default function AdminPage() {
     })
     setEditId(product.id)
     setPublishError('')
+    setReleaseError('')
+    setReleaseList(null)
     const existingURLs = product.imageURLs?.length
       ? product.imageURLs
       : [product.imageURL || product.image].filter(Boolean)
@@ -2806,9 +2821,45 @@ export default function AdminPage() {
     }
   }
 
+  // ── Paid download (digital delivery) ──────────────────────────────────────
+  // Uploads land in releases/, which only the owner can read. The product stores
+  // the path, never a URL — the confirmation email carries a signed link.
+  async function handleReleaseUpload(file) {
+    if (!file) return
+    setReleaseError('')
+    setReleasePct(0)
+    try {
+      const path = await uploadRelease(file, form.slug || form.name, setReleasePct)
+      setForm(f => ({ ...f, downloadPath: path }))
+      setReleaseList(null)
+    } catch (err) {
+      console.error(err)
+      setReleaseError(err?.code === 'storage/unauthorized'
+        ? 'Storage refused the upload — only the shop owner account can add release files.'
+        : 'Upload failed — check your connection and try again.')
+    } finally {
+      setReleasePct(null)
+    }
+  }
+
+  async function toggleReleasePicker() {
+    if (releaseList) { setReleaseList(null); return }
+    setReleaseListBusy(true)
+    setReleaseError('')
+    try {
+      setReleaseList(await listReleases())
+    } catch (err) {
+      console.error(err)
+      setReleaseError('Could not list uploaded files.')
+    } finally {
+      setReleaseListBusy(false)
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (imgUploading) { setPublishError('Image is still uploading — wait a moment.'); return }
+    if (releasePct !== null) { setPublishError('Download file is still uploading — wait a moment.'); return }
     setPublishBusy(true)
     setPublishError('')
     try {
@@ -3777,6 +3828,82 @@ export default function AdminPage() {
                 </div>
               </>
             )}
+
+            {/* Paid download — any category can be a digital good */}
+            <div className="flex flex-col gap-1">
+              <label className="eyebrow">Paid Download (optional)</label>
+              <p className="font-mono text-[11px] text-warm-gray mb-1">
+                The file a buyer receives after paying. Private — nothing links to it publicly;
+                the confirmation email carries a 30-day link. Leave empty for physical-only items.
+              </p>
+
+              {form.downloadPath ? (
+                <div className="flex items-center gap-2 border border-warm-gray-light px-3 py-2">
+                  <span className="font-mono text-[12px] text-ink flex-1" style={{ wordBreak: 'break-all' }}>
+                    {form.downloadPath}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, downloadPath: '' }))}
+                    className="font-mono text-[11px] px-2 py-1 border border-warm-gray-light text-warm-gray hover:text-ink"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="file"
+                    disabled={releasePct !== null}
+                    onChange={e => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      handleReleaseUpload(file)
+                    }}
+                    className="font-mono text-[12px] text-warm-gray"
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleReleasePicker}
+                    disabled={releaseListBusy || releasePct !== null}
+                    className="font-mono text-[11px] px-3 py-2 border border-warm-gray-light text-warm-gray hover:text-ink self-start"
+                  >
+                    {releaseListBusy ? 'Loading…' : releaseList ? 'Hide uploaded files' : 'Or pick a file already uploaded…'}
+                  </button>
+
+                  {releaseList && (
+                    releaseList.length === 0 ? (
+                      <p className="font-mono text-[11px] text-warm-gray">No files uploaded yet.</p>
+                    ) : (
+                      <ul className="flex flex-col gap-1" style={{ listStyle: 'none', padding: 0, maxHeight: 240, overflowY: 'auto' }}>
+                        {releaseList.map(f => (
+                          <li key={f.path}>
+                            <button
+                              type="button"
+                              onClick={() => { setForm(fm => ({ ...fm, downloadPath: f.path })); setReleaseList(null) }}
+                              className="w-full flex items-center gap-2 border border-warm-gray-light px-3 py-2 text-left hover:border-ink"
+                              style={{ background: 'transparent', cursor: 'pointer' }}
+                            >
+                              <span className="font-mono text-[12px] text-ink flex-1" style={{ wordBreak: 'break-all' }}>{f.name}</span>
+                              {f.size != null && (
+                                <span className="font-mono text-[11px] text-warm-gray">{formatBytes(f.size)}</span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  )}
+                </div>
+              )}
+
+              {releasePct !== null && (
+                <p className="font-mono text-[11px] text-earth">Uploading download… {releasePct}%</p>
+              )}
+              {releaseError && (
+                <p className="font-mono text-[11px] text-red-500">{releaseError}</p>
+              )}
+            </div>
 
             {/* Condition — shown on all listings */}
             <div className="flex flex-col gap-1">
