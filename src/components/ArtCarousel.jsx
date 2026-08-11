@@ -170,22 +170,33 @@ export default function ArtCarousel() {
           </div>
         )}
 
-        {/* Progress dots — show position in the rotation */}
+        {/* Progress dots — show position in the rotation.
+            The dot stays 4px tall visually, but the BUTTON is 44px so it can
+            actually be tapped on a phone — a 6x4px hit area was unusable. */}
         {!loading && art.length > TILES && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 0, marginTop: '12px' }}>
             {art.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setStep(i)}
                 aria-label={`Go to slide ${i + 1}`}
                 style={{
-                  width: (step % art.length) === i ? '18px' : '6px',
-                  height: '4px',
-                  background: (step % art.length) === i ? '#b97a30' : 'rgba(60,40,16,0.18)',
-                  border: 'none', cursor: 'pointer', padding: 0,
-                  transition: 'width 0.3s, background 0.3s',
+                  width: '22px', height: '44px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                 }}
-              />
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    display: 'block',
+                    width: (step % art.length) === i ? '18px' : '6px',
+                    height: '4px',
+                    background: (step % art.length) === i ? '#b97a30' : 'rgba(60,40,16,0.18)',
+                    transition: 'width 0.3s, background 0.3s',
+                  }}
+                />
+              </button>
             ))}
           </div>
         )}

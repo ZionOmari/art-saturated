@@ -214,8 +214,9 @@ export default function ConsultPage() {
                   type="button"
                   onClick={() => setDate(d)}
                   aria-pressed={d === date}
-                  className="font-mono text-[11px] px-3 py-2 border cursor-pointer transition-colors"
+                  className="font-mono text-[11px] px-3 border cursor-pointer transition-colors"
                   style={{
+                    minHeight: '44px',
                     borderColor: d === date ? 'rgb(var(--color-ink))' : 'rgb(var(--color-warm-gray-light))',
                     background:  d === date ? 'rgb(var(--color-ink))' : 'transparent',
                     color:       d === date ? 'rgb(var(--color-cream))' : 'rgb(var(--color-warm-gray))',
@@ -244,8 +245,9 @@ export default function ConsultPage() {
                     type="button"
                     onClick={() => setSlot(s)}
                     aria-pressed={slot?.id === s.id}
-                    className="font-mono text-[11px] px-3 py-2 border cursor-pointer transition-colors"
+                    className="font-mono text-[11px] px-3 border cursor-pointer transition-colors"
                     style={{
+                      minHeight: '44px',
                       borderColor: slot?.id === s.id ? 'rgb(var(--color-ink))' : 'rgb(var(--color-warm-gray-light))',
                       background:  slot?.id === s.id ? 'rgb(var(--color-ink))' : 'transparent',
                       color:       slot?.id === s.id ? 'rgb(var(--color-cream))' : 'rgb(var(--color-warm-gray))',

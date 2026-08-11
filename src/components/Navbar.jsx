@@ -77,7 +77,7 @@ export default function Navbar() {
             onClick={toggleTheme}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             className="font-mono text-[16px] leading-none bg-transparent border-0 cursor-pointer text-warm-gray hover:text-ink transition-colors duration-200"
-            style={{ padding: '4px 2px' }}
+            style={{ padding: '4px 2px', minWidth: '44px', minHeight: '44px' }}
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? '☀' : '☾'}
@@ -100,7 +100,7 @@ export default function Navbar() {
             onClick={toggleTheme}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             className="font-mono text-[16px] leading-none bg-transparent border-0 cursor-pointer text-warm-gray"
-            style={{ padding: '4px 2px' }}
+            style={{ padding: '4px 2px', minWidth: '44px', minHeight: '44px' }}
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? '☀' : '☾'}
