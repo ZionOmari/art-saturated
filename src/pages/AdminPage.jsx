@@ -4,7 +4,7 @@ import OrderThread from '../components/OrderThread'
 import StylePicker from '../components/StylePicker'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { CATEGORIES } from '../data/products'
+import { CATEGORIES, normalizeCategory } from '../data/products'
 import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, uploadRelease, listReleases, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
 import CropModal   from '../components/CropModal'
 import AvailabilityManager from '../components/AvailabilityManager'
@@ -113,7 +113,7 @@ const SLOT_LABELS = {
   'Art':              ['Main Photo', 'Detail Shot', 'Alt. View', 'Back', 'Extra', 'Extra'],
   'Vintage Tech':     ['Front', 'Back', 'Detail', 'Side', 'Extra', 'Extra'],
   'Get On The Flora': ['Main Photo', 'Detail', 'Extra', 'Extra', 'Extra', 'Extra'],
-  'Room 40 Threads':  ['Front', 'Back', 'Detail', 'Lifestyle', 'Extra', 'Extra'],
+  'Clothing':         ['Front', 'Back', 'Detail', 'Lifestyle', 'Extra', 'Extra'],
 }
 
 const VINYL_GENRES = [
@@ -950,12 +950,14 @@ function SubmissionsPanel() {
       if (!sub) throw new Error('Submission not found')
 
       // Create a product in the shop from the submission data.
-      // Clothing submissions land in Room 40 Threads with their garment type;
-      // everything else defaults to Art.
-      const isClothingSub = sub.shopCategory === 'Room 40 Threads'
+      // Clothing submissions keep their garment type; everything else defaults
+      // to Art. normalizeCategory covers submissions written before the
+      // 'Room 40 Threads' → 'Clothing' rename.
+      const shopCategory  = normalizeCategory(sub.shopCategory || 'Art')
+      const isClothingSub = shopCategory === 'Clothing'
       const productRef = await addProduct({
         name:        sub.title        || '',
-        category:    sub.shopCategory  || 'Art',
+        category:    shopCategory,
         garmentType: sub.garmentType  || '',                 // Tops / Bottoms / Accessories / Custom (clothing)
         medium:      isClothingSub ? (sub.medium || '') : (sub.category || sub.medium || ''),
         description: sub.description  || '',
@@ -3601,8 +3603,8 @@ export default function AdminPage() {
               </>
             )}
 
-            {/* Garment type + sizes (Room 40 Threads only) */}
-            {form.category === 'Room 40 Threads' && (
+            {/* Garment type + sizes (Clothing only) */}
+            {form.category === 'Clothing' && (
               <>
                 <div className="flex flex-col gap-1">
                   <label className="eyebrow">Garment Type</label>

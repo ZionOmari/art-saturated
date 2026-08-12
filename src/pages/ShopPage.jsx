@@ -14,7 +14,7 @@ const ART_MEDIUMS     = ['All Art', 'Pen', 'Crayon', 'Mixed', 'Prints']
 const PLANTER_SERIES  = ['All Get On The Flora', 'Ruins of Drumwind', 'Tree of Life']
 const VINTAGE_TYPES   = ['All Vintage Tech', 'VHS Players', 'Vintage Cameras', 'Cassette Players', 'Record Players', 'DVD Players', 'Multi Media Players']
 const MEDIA_TYPES     = ['All Physical Media', 'Local Legends', 'New Arrivals', 'Vinyl', 'CDs', 'Cassette Tapes', '8 Tracks', 'VHS Tapes']
-const THREADS_TYPES   = ['All Room 40 Threads', 'Tops', 'Bottoms', 'Accessories', 'Custom / One of One']
+const CLOTHING_TYPES  = ['All Clothing', 'Tops', 'Bottoms', 'Accessories', 'Custom / One of One']
 
 export default function ShopPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -68,7 +68,7 @@ export default function ShopPage() {
   const planterSeries = searchParams.get('series')  || 'All Get On The Flora'
   const vintageType   = searchParams.get('vintage') || 'All Vintage Tech'
   const mediaType     = searchParams.get('media')   || 'All Physical Media'
-  const threadsType   = searchParams.get('threads') || 'All Room 40 Threads'
+  const clothingType  = searchParams.get('garment') || 'All Clothing'
 
   function setParam(key, value) {
     setSearchParams(prev => {
@@ -128,9 +128,9 @@ export default function ShopPage() {
       const typed = media.filter((p) => p.type === mediaType)
       return [...typed.filter(p => p.localLegend), ...typed.filter(p => !p.localLegend)]
     }
-    if (activeFilter === 'Room 40 Threads') {
-      const threads = products.filter((p) => p.category === 'Room 40 Threads')
-      return threadsType === 'All Room 40 Threads' ? threads : threads.filter((p) => p.garmentType === threadsType)
+    if (activeFilter === 'Clothing') {
+      const clothing = products.filter((p) => p.category === 'Clothing')
+      return clothingType === 'All Clothing' ? clothing : clothing.filter((p) => p.garmentType === clothingType)
     }
     return products.filter((p) => p.category === activeFilter)
   })()
@@ -146,12 +146,12 @@ export default function ShopPage() {
   const isArt     = activeFilter === 'Art'
   const isVintage = activeFilter === 'Vintage Tech'
   const isMedia   = activeFilter === 'Physical Media'
-  const isThreads = activeFilter === 'Room 40 Threads'
+  const isClothing = activeFilter === 'Clothing'
 
-  const mainBg = isFlora ? '#4a2e14' : isArt ? '#f2ebe0' : isVintage ? '#0e0e0e' : isMedia ? '#c4956a' : isThreads ? '#0e0c14' : undefined
+  const mainBg = isFlora ? '#4a2e14' : isArt ? '#f2ebe0' : isVintage ? '#0e0e0e' : isMedia ? '#c4956a' : isClothing ? '#0e0c14' : undefined
 
   // On dark backgrounds pills need light text/borders
-  const darkBg = isFlora || isVintage || isThreads
+  const darkBg = isFlora || isVintage || isClothing
   const pillStyle       = darkBg ? { color: 'rgba(255,255,255,0.65)', borderColor: 'rgba(255,255,255,0.22)' } : {}
   const pillActiveStyle = darkBg ? { background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.5)' } : {}
 
@@ -241,11 +241,11 @@ export default function ShopPage() {
           <button
             onClick={() => setActiveFilter(null)}
             className="font-serif text-[2rem] font-normal hover:opacity-60 transition-opacity"
-            style={(isFlora || isVintage || isThreads) ? { color: 'rgba(255,255,255,0.9)', WebkitTextFillColor: 'rgba(255,255,255,0.9)' } : isMedia ? { color: '#2a1a08', WebkitTextFillColor: '#2a1a08' } : undefined}
+            style={(isFlora || isVintage || isClothing) ? { color: 'rgba(255,255,255,0.9)', WebkitTextFillColor: 'rgba(255,255,255,0.9)' } : isMedia ? { color: '#2a1a08', WebkitTextFillColor: '#2a1a08' } : undefined}
           >
             Shop
           </button>
-          <span className="eyebrow" style={(isFlora || isVintage || isThreads) ? { color: 'rgba(255,255,255,0.45)' } : isMedia ? { color: 'rgba(42,26,8,0.6)' } : undefined}>
+          <span className="eyebrow" style={(isFlora || isVintage || isClothing) ? { color: 'rgba(255,255,255,0.45)' } : isMedia ? { color: 'rgba(42,26,8,0.6)' } : undefined}>
             {activeFilter} · {filtered.length} items
           </span>
         </div>
@@ -329,15 +329,15 @@ export default function ShopPage() {
           </div>
         )}
 
-        {/* ── Room 40 Threads type subtabs ─────────────────── */}
-        {activeFilter === 'Room 40 Threads' && (
+        {/* ── Clothing type subtabs ────────────────────────── */}
+        {activeFilter === 'Clothing' && (
           <div className="flex flex-wrap gap-2 pb-6">
-            {THREADS_TYPES.map((t) => (
+            {CLOTHING_TYPES.map((t) => (
               <button
                 key={t}
-                onClick={() => setParam('threads', t === 'All Room 40 Threads' ? null : t)}
-                className={`filter-pill text-[10px] ${threadsType === t ? 'filter-pill-active' : ''}`}
-                style={threadsType === t ? pillActiveStyle : pillStyle}
+                onClick={() => setParam('garment', t === 'All Clothing' ? null : t)}
+                className={`filter-pill text-[10px] ${clothingType === t ? 'filter-pill-active' : ''}`}
+                style={clothingType === t ? pillActiveStyle : pillStyle}
               >
                 {t}
               </button>
@@ -345,7 +345,7 @@ export default function ShopPage() {
           </div>
         )}
 
-        {!['Art', 'Get On The Flora', 'Vintage Tech', 'Physical Media', 'Room 40 Threads'].includes(activeFilter) && <div className="pb-6" />}
+        {!CATEGORIES.includes(activeFilter) && <div className="pb-6" />}
 
         {/* ── Commission button (Art only) ─────────────────────── */}
         {activeFilter === 'Art' && (

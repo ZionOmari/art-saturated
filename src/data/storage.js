@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, listAll, getMetadata } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
+import { normalizeProduct } from './products'
 
 // ── Draft helpers (localStorage, never stores image data) ────────────────────
 const DRAFT_KEY = 'admin_product_draft'
@@ -44,7 +45,7 @@ export async function fetchAllProducts() {
   if (_allProductsInflight) return _allProductsInflight
   _allProductsInflight = (async () => {
     const snap = await getDocs(query(collection(db, 'products'), orderBy('createdAt', 'desc')))
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    return snap.docs.map(d => normalizeProduct({ id: d.id, ...d.data() }))
   })()
   try {
     return await _allProductsInflight
