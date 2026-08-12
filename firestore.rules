@@ -6,6 +6,14 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email == 'zionomari@artsaturated.com';
     }
 
+    // A paid-up seller. Uploading is a membership benefit, so this is checked
+    // here and not only in the UI — otherwise the paywall is one console call away.
+    function isMember() {
+      return request.auth != null
+          && get(/databases/$(database)/documents/users/$(request.auth.uid))
+               .data.artistSubActive == true;
+    }
+
     match /users/{userId} {
       // Public artist profiles are readable by anyone; all other user data requires auth
       allow read:  if resource.data.artistPublic == true
@@ -107,10 +115,54 @@ service cloud.firestore {
           && resource.data.status == 'rejected'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedbackRequested']));
     }
-    // Products — public read, admin write
+    // Products — public read. The owner writes anything; a paid-up seller may
+    // publish their own listing straight to the shop (no approval step) and edit
+    // it afterwards, within a strict field allowlist.
+    //
+    // The allowlist is the security boundary, so read it as a deny-list too:
+    // `downloadPath` is absent on purpose — it names a file under releases/ that
+    // settlement signs and emails, so a seller who could set it could have any
+    // paid release delivered to themselves. Deposit and preview-track fields are
+    // out for the same reason: they drive money and storage the seller doesn't own.
     match /products/{productId} {
-      allow read:  if true;
-      allow write: if isAdmin();
+      allow read: if true;
+
+      allow create: if isAdmin() || (
+        isMember()
+        && request.resource.data.sellerId  == request.auth.uid
+        && request.resource.data.artistUid == request.auth.uid
+        && request.resource.data.source     == 'seller_upload'
+        && request.resource.data.moderation == 'unreviewed'
+        && request.resource.data.active     == true
+        && request.resource.data.sold       == false
+        && request.resource.data.price is number
+        && request.resource.data.price > 0
+        && request.resource.data.agreedToTerms == true
+        && request.resource.data.keys().hasOnly([
+             'name', 'slug', 'category', 'listingType', 'medium', 'dimensions',
+             'year', 'price', 'stock', 'weightOz', 'description', 'details',
+             'garmentType', 'sizes', 'styles', 'unique',
+             'image', 'imageURL', 'imageURLs',
+             'sellerId', 'artistUid', 'artistName', 'artistPayout',
+             'source', 'moderation', 'active', 'inBucket', 'sold',
+             'itemNumber', 'createdAt', 'agreedToTerms', 'termsVersion'])
+      );
+
+      // A seller edits their own listing only, and cannot touch the fields that
+      // decide whether it is theirs or whether it has been reviewed.
+      allow update: if isAdmin() || (
+        isMember()
+        && resource.data.sellerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'name', 'description', 'details', 'price', 'stock', 'active',
+             'medium', 'dimensions', 'year', 'weightOz', 'garmentType', 'sizes',
+             'image', 'imageURL', 'imageURLs'])
+        && request.resource.data.price is number
+        && request.resource.data.price > 0
+      );
+
+      // Never hard-delete: orders reference product ids. Unpublish instead.
+      allow delete: if isAdmin();
 
       // Product reviews — public read; any signed-in user can create/edit their own
       match /reviews/{reviewId} {
@@ -120,6 +172,17 @@ service cloud.firestore {
         allow update, delete: if request.auth != null
           && resource.data.uid == request.auth.uid;
       }
+    }
+    // Listing reports — anyone can flag a listing, signed in or not, because the
+    // person who spots a stolen photo or a scam is usually a passer-by. Only the
+    // owner can read them, and nobody can edit or delete a report once filed.
+    match /reports/{reportId} {
+      allow create: if request.resource.data.productId is string
+                    && request.resource.data.reason is string
+                    && request.resource.data.status == 'open';
+      allow read:   if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if false;
     }
     // Counters — admin write; any auth user can increment via transaction (item + submission numbers)
     match /counters/{counterId} {

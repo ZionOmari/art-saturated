@@ -110,6 +110,65 @@ export async function deleteProduct(id) {
   await deleteDoc(doc(db, 'products', id))
 }
 
+// ── Seller listings ──────────────────────────────────────────────────────────
+// A paid-up member publishes straight to the shop: there is no approval gate.
+// What holds the line instead is the agreement they accept at upload, the
+// owner's review queue, and reports from anyone who sees something wrong.
+//
+// The fields written here must stay inside the allowlist in firestore.rules —
+// an extra key fails the whole write rather than being quietly dropped, so add
+// to both or neither.
+export const TERMS_VERSION = '2026-08-12'
+
+export async function createSellerListing(fields) {
+  const itemNumber = await getNextItemNumber()
+  return addDoc(collection(db, 'products'), {
+    ...fields,
+    itemNumber,
+    source:        'seller_upload',
+    moderation:    'unreviewed',
+    active:        true,
+    inBucket:      false,
+    sold:          false,
+    agreedToTerms: true,
+    termsVersion:  TERMS_VERSION,
+    createdAt:     serverTimestamp(),
+  })
+}
+
+/** Owner-only: mark a listing reviewed / flagged, or take it down. */
+export async function setListingModeration(productId, moderation, extra = {}) {
+  await updateDoc(doc(db, 'products', productId), { moderation, ...extra })
+}
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+// Open to anyone, signed in or not — whoever notices a stolen photo usually
+// isn't the one with an account.
+export async function reportListing({ productId, productName, reason, note, reporterEmail, reporterUid }) {
+  return addDoc(collection(db, 'reports'), {
+    productId,
+    productName:   productName || '',
+    reason,
+    note:          (note || '').slice(0, 1000),
+    reporterEmail: reporterEmail || '',
+    reporterUid:   reporterUid || null,
+    status:        'open',
+    createdAt:     serverTimestamp(),
+  })
+}
+
+/** Owner-only. Sorted newest first in memory — a where+orderBy pair would need a composite index. */
+export async function fetchReports(status = 'open') {
+  const snap = await getDocs(query(collection(db, 'reports'), where('status', '==', status)))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+}
+
+export async function resolveReport(id, status = 'resolved') {
+  await updateDoc(doc(db, 'reports', id), { status })
+}
+
 // ── Image upload ─────────────────────────────────────────────────────────────
 
 // Firebase Storage defaults new objects to `cache-control: private, max-age=0`,

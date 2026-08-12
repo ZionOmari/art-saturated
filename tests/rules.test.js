@@ -212,6 +212,114 @@ describe('artist membership', () => {
   })
 })
 
+describe('seller listings', () => {
+  // Sellers publish straight to the shop with no approval step, so this rule is
+  // the whole boundary between a paid membership and the live catalog.
+  const MEMBER = { name: 'Painter', email: 'buyer@example.com', artistSubActive: true }
+
+  const LISTING = {
+    name: 'Untitled', slug: 'untitled-ab12', category: 'Art', listingType: 'art',
+    medium: 'ink', dimensions: '8x11', year: 2026, price: 40, stock: 1,
+    weightOz: 8, description: '', garmentType: '', sizes: [], unique: true,
+    image: 'https://x/1.jpg', imageURL: 'https://x/1.jpg', imageURLs: ['https://x/1.jpg'],
+    sellerId: 'buyer1', artistUid: 'buyer1', artistName: 'Painter', artistPayout: 40,
+    source: 'seller_upload', moderation: 'unreviewed', active: true, inBucket: false,
+    sold: false, itemNumber: 1, agreedToTerms: true, termsVersion: '2026-08-12',
+  }
+
+  it('lets a paid-up member publish their own listing', async () => {
+    await seed('users/buyer1', MEMBER)
+    await assertSucceeds(setDoc(doc(buyer(), 'products/p1'), LISTING))
+  })
+
+  it('blocks publishing without an active membership', async () => {
+    await seed('users/buyer1', { ...MEMBER, artistSubActive: false })
+    await assertFails(setDoc(doc(buyer(), 'products/p2'), LISTING))
+  })
+
+  it('blocks listing under someone else\'s name', async () => {
+    await seed('users/buyer1', MEMBER)
+    await assertFails(setDoc(doc(buyer(), 'products/p3'), { ...LISTING, sellerId: 'someone-else' }))
+    await assertFails(setDoc(doc(buyer(), 'products/p4'), { ...LISTING, artistUid: 'someone-else' }))
+  })
+
+  it('blocks a free listing', async () => {
+    // price 0 would be a live, purchasable, $0 product.
+    await seed('users/buyer1', MEMBER)
+    await assertFails(setDoc(doc(buyer(), 'products/p5'), { ...LISTING, price: 0 }))
+    await assertFails(setDoc(doc(buyer(), 'products/p6'), { ...LISTING, price: '40' }))
+  })
+
+  it('blocks a seller attaching a paid download to their listing', async () => {
+    // downloadPath names a file under releases/ that settlement signs and emails.
+    // A seller who could set it could have anyone's release delivered to a buyer.
+    await seed('users/buyer1', MEMBER)
+    await assertFails(setDoc(doc(buyer(), 'products/p7'), {
+      ...LISTING, downloadPath: 'releases/someone-elses-album/master.zip',
+    }))
+  })
+
+  it('blocks a seller publishing pre-reviewed or pre-sold', async () => {
+    await seed('users/buyer1', MEMBER)
+    await assertFails(setDoc(doc(buyer(), 'products/p8'), { ...LISTING, moderation: 'ok' }))
+    await assertFails(setDoc(doc(buyer(), 'products/p9'), { ...LISTING, sold: true }))
+  })
+
+  it('lets a seller edit their own listing but not its moderation state', async () => {
+    await seed('users/buyer1', MEMBER)
+    await seed('products/p10', LISTING)
+    await assertSucceeds(updateDoc(doc(buyer(), 'products/p10'), { price: 55, description: 'Ink on paper.' }))
+    await assertFails(updateDoc(doc(buyer(), 'products/p10'), { moderation: 'ok' }))
+    await assertFails(updateDoc(doc(buyer(), 'products/p10'), { sellerId: 'someone-else' }))
+    await assertFails(updateDoc(doc(buyer(), 'products/p10'), { price: 0 }))
+  })
+
+  it('stops a member editing somebody else\'s listing', async () => {
+    await seed('users/seller1', { ...MEMBER, email: 'seller@example.com' })
+    await seed('products/p11', LISTING)   // owned by buyer1
+    await assertFails(updateDoc(doc(seller(), 'products/p11'), { price: 1 }))
+  })
+
+  it('keeps deletes owner-only — orders reference product ids', async () => {
+    await seed('users/buyer1', MEMBER)
+    await seed('products/p12', LISTING)
+    await assertFails(deleteDoc(doc(buyer(), 'products/p12')))
+    await assertSucceeds(deleteDoc(doc(owner(), 'products/p12')))
+  })
+
+  it('leaves the catalog publicly readable', async () => {
+    await seed('products/p13', LISTING)
+    await assertSucceeds(getDoc(doc(anon(), 'products/p13')))
+  })
+})
+
+describe('listing reports', () => {
+  const REPORT = { productId: 'p1', productName: 'Untitled', reason: 'Stolen photos', status: 'open' }
+
+  it('lets anyone report a listing, signed in or not', async () => {
+    await assertSucceeds(setDoc(doc(anon(),  'reports/r1'), REPORT))
+    await assertSucceeds(setDoc(doc(buyer(), 'reports/r2'), REPORT))
+  })
+
+  it('blocks a report that files itself pre-resolved', async () => {
+    await assertFails(setDoc(doc(anon(), 'reports/r3'), { ...REPORT, status: 'dismissed' }))
+  })
+
+  it('keeps reports readable by the owner only', async () => {
+    await seed('reports/r4', REPORT)
+    await assertSucceeds(getDoc(doc(owner(), 'reports/r4')))
+    await assertFails(getDoc(doc(buyer(), 'reports/r4')))
+    await assertFails(getDoc(doc(anon(),  'reports/r4')))
+  })
+
+  it('stops anyone erasing a report, including the owner', async () => {
+    await seed('reports/r5', REPORT)
+    await assertFails(deleteDoc(doc(buyer(), 'reports/r5')))
+    await assertFails(deleteDoc(doc(owner(), 'reports/r5')))
+    await assertSucceeds(updateDoc(doc(owner(), 'reports/r5'), { status: 'dismissed' }))
+  })
+})
+
 describe('checkoutRequests', () => {
   it('lets a user create and read only their own checkout request', async () => {
     await assertSucceeds(setDoc(doc(buyer(), 'checkoutRequests/c1'), {

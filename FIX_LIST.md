@@ -7,36 +7,40 @@ Started 2026-08-12.
 
 ---
 
-## 1. Artist uploads are invisible to everyone, including the artist
+## 1. Old artist uploads are stranded in Firestore
 
-**Severity: blocks the whole seller feature.**
+**No longer blocks new uploads** — sellers now publish straight to `products` and
+never touch `submissions`. What's left is the backlog: anything uploaded through
+the old flow is still invisible to everyone.
 
-`GalleryUploadPage.jsx` writes each submission with `createdAt`
-(`src/pages/GalleryUploadPage.jsx:157`). Both places that list submissions order
-by a different field, `submittedAt`:
+The old `GalleryUploadPage.saveAll()` wrote each submission with `createdAt`
+only. Both places that list submissions order by a different field, `submittedAt`:
 
 - admin review queue — `src/pages/AdminPage.jsx:934`
 - the artist's own Submissions tab — `src/pages/AccountPage.jsx:284`
 
 Firestore silently drops documents that lack the field being ordered on. So a
-submission from `/gallery-upload` is never listed anywhere: the owner can't
-review it, and the artist who paid $7.99/month to upload it can't see it either.
-It is in Firestore, just unreachable through the UI.
+submission from the old `/gallery-upload` was never listed anywhere: the owner
+couldn't review it, and the artist who paid $7.99/month to upload it couldn't see
+it either. Those documents are still in Firestore, still unreachable.
 
-**Fix:** write `submittedAt: serverTimestamp()` in `GalleryUploadPage.saveAll()`
-(keep `createdAt` too — other code reads it), and backfill existing docs with a
-script that copies `createdAt` into `submittedAt` where it's missing. Worth
-checking Firestore first for how many are stranded.
+**Fix:** a script that copies `createdAt` into `submittedAt` wherever it's
+missing. Check first whether any exist — if nobody ever subscribed and uploaded,
+there is nothing to rescue and this row can be deleted.
 
-## 2. Approving a submission publishes it at $0, live
+## 2. The old approval path still publishes at $0
 
 `AdminPage.jsx:962` — `price: sub.price || 0`, with `active: true` on the same
-object. The upload form has no price field at all, so *every* artist submission
-arrives with no price and goes straight into the shop at $0, purchasable.
+object, in `SubmissionsPanel.approveSubmission` and again in `syncToShop`.
 
-**Fix depends on the pricing model** (still undecided): seller sets the price, or
-the approval step requires one. Either way, approval should refuse to publish a
-product with a price of 0 — one guard clause, worth adding regardless.
+The new seller path can't produce this: `firestore.rules` refuses a listing whose
+price isn't a number greater than zero. But the Submissions panel is still wired
+up for old documents, and approving one with no price puts a free, purchasable
+product in the shop.
+
+**Fix:** one guard clause in both functions — refuse to create a product priced
+at 0. Or retire the Submissions panel entirely once the backlog in #1 is dealt
+with, since nothing writes to that collection any more.
 
 ## 3. Preview-clip uploader is in the wrong category block
 

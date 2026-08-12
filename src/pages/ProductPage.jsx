@@ -7,10 +7,12 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import Footer from '../components/Footer'
 import { formatItemNumber } from '../data/storage'
+import { normalizeProduct } from '../data/products'
 import { fetchReviews, addReview, calcAverageRating } from '../data/reviews'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
 import TreeOfLifeConfigurator from '../components/TreeOfLifeConfigurator'
 import AudioPreview from '../components/AudioPreview'
+import ReportListing from '../components/ReportListing'
 import { useAuth } from '../context/AuthContext'
 import { checkoutDeposit } from '../lib/stripe'
 import Spinner from '../components/Spinner'
@@ -322,7 +324,7 @@ export default function ProductPage() {
     setLoading(true)
     // Resolve the one product by slug instead of downloading the whole catalog.
     getDocs(query(collection(db, 'products'), where('slug', '==', slug), limit(1)))
-      .then(snap => setProduct(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }))
+      .then(snap => setProduct(snap.empty ? null : normalizeProduct({ id: snap.docs[0].id, ...snap.docs[0].data() })))
       .catch(() => setProduct(null))
       .finally(() => setLoading(false))
   }, [slug])
@@ -697,6 +699,8 @@ export default function ProductPage() {
                 Facebook
               </button>
             </div>
+
+            <ReportListing product={product} />
           </div>
         </div>
 

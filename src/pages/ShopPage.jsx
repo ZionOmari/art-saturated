@@ -10,7 +10,7 @@ import { CATEGORIES } from '../data/products'
 import { fetchShopProducts } from '../data/storage'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
 
-const ART_MEDIUMS     = ['All Art', 'Pen', 'Crayon', 'Mixed', 'Prints']
+const ART_MEDIUMS     = ['All Art', 'Sculpture', 'Pen', 'Crayon', 'Mixed', 'Prints']
 const PLANTER_SERIES  = ['All Get On The Flora', 'Ruins of Drumwind', 'Tree of Life']
 const VINTAGE_TYPES   = ['All Vintage Tech', 'VHS Players', 'Vintage Cameras', 'Cassette Players', 'Record Players', 'DVD Players', 'Multi Media Players']
 const MEDIA_TYPES     = ['All Physical Media', 'Local Legends', 'New Arrivals', 'Vinyl', 'CDs', 'Cassette Tapes', '8 Tracks', 'VHS Tapes']
@@ -109,7 +109,12 @@ export default function ShopPage() {
     if (!activeFilter) return []
     if (activeFilter === 'Art') {
       const art = products.filter((p) => p.category === 'Art')
-      return artMedium === 'All Art' ? art : art.filter((p) => p.medium === artMedium)
+      // Sculpture sits in Art rather than owning a top-level category, so it is
+      // told apart by listingType — `medium` stays the seller's own words
+      // ('bronze', 'raku clay') instead of being overwritten with a filter label.
+      if (artMedium === 'All Art')   return art
+      if (artMedium === 'Sculpture') return art.filter((p) => p.listingType === 'sculpture')
+      return art.filter((p) => p.medium === artMedium)
     }
     if (activeFilter === 'Get On The Flora') {
       const planters = products.filter((p) => p.category === 'Get On The Flora')

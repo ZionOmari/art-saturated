@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { CATEGORIES, normalizeCategory } from '../data/products'
 import { fetchAllProducts, addProduct, updateProduct, deleteProduct, uploadProductImage, uploadProductAudio, uploadRelease, listReleases, loadDraft, saveDraft, clearDraft, slugify, formatItemNumber } from '../data/storage'
 import CropModal   from '../components/CropModal'
+import ReviewDeck  from '../components/ReviewDeck'
 import AvailabilityManager from '../components/AvailabilityManager'
 import { collection, collectionGroup, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, increment, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -4109,6 +4110,7 @@ export default function AdminPage() {
           const PRIMARY = [
             ['products',    'Products'],
             ['orders',      'Orders'],
+            ['review',      'Review'],
             ['submissions', 'Submissions'],
             ['ai',          'AI Usage'],
             ['bookings',    'Bookings'],
@@ -4152,6 +4154,9 @@ export default function AdminPage() {
 
         {/* Orders tab */}
         {tab === 'orders' && <OrdersPanel />}
+
+        {/* Review tab — seller listings that published without approval */}
+        {tab === 'review' && <ReviewDeck />}
 
         {/* Submissions tab */}
         {tab === 'submissions' && <SubmissionsPanel />}

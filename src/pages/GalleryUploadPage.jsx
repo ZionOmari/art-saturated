@@ -1,17 +1,39 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { db } from '../lib/firebase'
 import { useAuth } from '../context/AuthContext'
-import { uploadProductImage } from '../data/storage'
+import { uploadProductImage, createSellerListing, slugify } from '../data/storage'
 import { checkoutArtistSubscription } from '../lib/stripe'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 
 let nextId = 1
 const newPiece = (photos = []) => ({
-  id: nextId++, photos, title: '', medium: '', size: '', weightOz: '', year: '',
+  id: nextId++, photos, kind: 'art',
+  title: '', price: '', medium: '', size: '', weightOz: '', year: '',
+  garmentType: '', sizes: [],
 })
+
+// What a seller can list. `kind` decides which fields the card asks for and
+// which shop category the submission is approved into: clothing has its own
+// category, sculpture rides along in Art and is filtered by listingType.
+const KINDS = [
+  { key: 'art',       label: 'Art' },
+  { key: 'sculpture', label: 'Sculpture' },
+  { key: 'clothing',  label: 'Clothing' },
+]
+const GARMENT_TYPES = ['Tops', 'Bottoms', 'Accessories', 'Custom / One of One']
+const GARMENT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size']
+
+// Per-kind labels for the two free-text fields the kinds share.
+const MEDIUM_LABEL = {
+  art:       'Medium — pen, acrylic, mixed…',
+  sculpture: 'Material — clay, bronze, wood…',
+  clothing:  'Material — cotton, denim…',
+}
+const SIZE_LABEL = {
+  art:       'Size — 8×11 in',
+  sculpture: 'Dimensions — 12×6×6 in',
+}
 
 /**
  * Gallery upload.
@@ -34,6 +56,7 @@ export default function GalleryUploadPage() {
   const [error,   setError]   = useState(null)
   const [result,  setResult]  = useState(null)
   const [subBusy, setSubBusy] = useState(false)
+  const [agreed,  setAgreed]  = useState(false)
 
   const artistName = profile?.name || user?.displayName || user?.email || ''
   const isMember   = profile?.artistSubActive === true
@@ -129,7 +152,9 @@ export default function GalleryUploadPage() {
     const ready = pieces.filter(p => p.photos.length && p.photos.every(ph => !ph.uploading))
     if (!ready.length)                  { setError('Nothing ready to save yet.'); return }
     if (ready.some(p => !p.title.trim())) { setError('Every piece needs a title.'); return }
+    if (ready.some(p => !(parseFloat(p.price) > 0))) { setError('Every piece needs a price.'); return }
     if (pieces.some(p => p.photos.some(ph => ph.uploading))) { setError('Photos are still uploading.'); return }
+    if (!agreed) { setError('Tick the seller agreement before listing.'); return }
 
     setBusy(true)
     try {
@@ -137,24 +162,37 @@ export default function GalleryUploadPage() {
       for (const p of ready) {
         const imageURLs = p.photos.map(ph => ph.url).filter(Boolean)
         if (!imageURLs.length) continue
-        await addDoc(collection(db, 'submissions'), {
-          uid:          user.uid,
-          artistName,
-          artistEmail:  user.email,
-          title:        p.title.trim(),
+        const isClothing = p.kind === 'clothing'
+        const price      = parseFloat(p.price)
+        const title      = p.title.trim()
+        // Straight into the shop — no approval queue. The owner reviews after
+        // the fact and anyone can report a listing. Sculpture lives in the Art
+        // category and is told apart by listingType, so it gets its own filter
+        // without a top-level category of its own.
+        await createSellerListing({
+          name:         title,
+          slug:         `${slugify(title)}-${Math.random().toString(36).slice(2, 6)}`,
+          category:     isClothing ? 'Clothing' : 'Art',
+          listingType:  p.kind,
           medium:       p.medium.trim(),
           dimensions:   p.size.trim(),
-          weightOz:     p.weightOz ? parseFloat(p.weightOz) : null,
           year:         p.year ? parseInt(p.year, 10) : null,
-          category:     'Art',
-          shopCategory: 'Art',
-          listingType:  'art',
+          price,
+          // No commission — the membership is the fee, so the seller's payout
+          // is the whole price.
+          artistPayout: price,
+          stock:        1,
+          weightOz:     p.weightOz ? parseFloat(p.weightOz) : null,
+          description:  '',
+          garmentType:  isClothing ? p.garmentType : '',
+          sizes:        isClothing ? p.sizes : [],
+          unique:       !isClothing,
+          image:        imageURLs[0],
           imageURL:     imageURLs[0],
           imageURLs,
-          source:       'gallery-upload',
-          status:       'pending_review',
-          agreedToTerms: true,
-          createdAt:    serverTimestamp(),
+          sellerId:     user.uid,
+          artistUid:    user.uid,
+          artistName,
         })
         saved++
       }
@@ -196,13 +234,14 @@ export default function GalleryUploadPage() {
             Upload your work.
           </h1>
           <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-8">
-            $7.99 a month. Upload as much work as you like to your artist profile
-            and the shop — no per-listing fees, no limits.
+            $7.99 a month. List as much as you like — art, sculpture, clothing —
+            with no per-listing fee and no commission on what sells.
           </p>
           <ul className="font-mono text-[13px] text-warm-gray leading-relaxed mb-10" style={{ listStyle: 'none', padding: 0 }}>
             {[
-              'Unlimited uploads to your artist profile',
-              'Your work listed in the shop',
+              'Unlimited listings — art, sculpture, clothing',
+              'You keep the full sale price. No commission',
+              'Listings go live in the shop straight away',
               'A public profile page you can share',
               'Cancel any time — listed work stays up',
             ].map(t => <li key={t} className="mb-2">— {t}</li>)}
@@ -227,13 +266,15 @@ export default function GalleryUploadPage() {
         <div className="max-w-xl mx-auto px-6 py-24 text-center">
           <p className="text-[2.5rem] mb-4" aria-hidden>✓</p>
           <h1 className="font-serif text-[2rem] font-normal mb-3">
-            {result} piece{result !== 1 ? 's' : ''} submitted.
+            {result} listing{result !== 1 ? 's' : ''} live.
           </h1>
           <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-10">
-            Each goes to review before it appears in the shop and on your profile.
+            They're in the shop and on your profile now. Art Saturated reviews
+            listings as they come in and may take one down if it breaks the terms.
           </p>
           <div className="flex gap-3 justify-center flex-wrap">
-            <button className="btn-outline" onClick={() => setResult(null)}>Upload More</button>
+            <button className="btn-outline" onClick={() => setResult(null)}>List More</button>
+            <button className="btn-ghost" onClick={() => navigate('/shop')}>See the Shop</button>
             <button className="btn-ghost" onClick={() => navigate(`/artists/${user.uid}`)}>View Profile</button>
           </div>
         </div>
@@ -242,7 +283,18 @@ export default function GalleryUploadPage() {
     )
   }
 
-  const readyCount = pieces.filter(p => p.title.trim() && p.photos.every(ph => !ph.uploading)).length
+  const readyCount = pieces.filter(p =>
+    p.title.trim() && parseFloat(p.price) > 0 && p.photos.every(ph => !ph.uploading)
+  ).length
+
+  // Small selected/unselected pill, used for kind, garment type and sizes.
+  const pill = (on) => ({
+    fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.05em', padding: '4px 9px',
+    border: '1px solid', cursor: 'pointer', transition: 'all 0.15s',
+    background:  on ? 'rgb(var(--color-ink))' : 'transparent',
+    color:       on ? 'rgb(var(--color-cream))' : 'rgb(var(--color-warm-gray))',
+    borderColor: on ? 'rgb(var(--color-ink))' : 'rgb(var(--color-warm-gray-light))',
+  })
 
   // ── Upload ────────────────────────────────────────────────────────────────
   return (
@@ -251,11 +303,13 @@ export default function GalleryUploadPage() {
 
         <p className="eyebrow mb-4">Gallery upload</p>
         <h1 className="font-serif text-[clamp(1.8rem,4vw,2.4rem)] font-normal leading-tight mb-3">
-          Add your work.
+          List your work.
         </h1>
         <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-8 max-w-xl">
-          Add photos and each one becomes its own piece. More than one photo of the
-          same piece? Drag the extras onto that piece's card and they'll join it.
+          Art, sculpture or clothing. Add photos and each one becomes its own
+          listing — more than one photo of the same piece? Drag the extras onto
+          that card and they'll join it. Everything goes live in the shop as soon
+          as you list it, at the price you set, with no commission taken.
         </p>
 
         {/* Add photos — no `capture` attr, so iOS offers camera *or* library */}
@@ -387,28 +441,87 @@ export default function GalleryUploadPage() {
                     </label>
                   </div>
 
+                  {/* What kind of thing this is — decides the fields below and
+                      where it lands in the shop. */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {KINDS.map(k => (
+                      <button
+                        key={k.key}
+                        type="button"
+                        aria-pressed={piece.kind === k.key}
+                        onClick={() => update(piece.id, { kind: k.key })}
+                        style={pill(piece.kind === k.key)}
+                      >
+                        {k.label}
+                      </button>
+                    ))}
+                  </div>
+
                   <input
                     style={{ ...input, fontSize: 13 }} value={piece.title} placeholder="Title"
                     onChange={e => update(piece.id, { title: e.target.value })}
                   />
                   <input
-                    style={input} value={piece.medium} placeholder="Medium"
+                    style={input} value={piece.price} placeholder="Price ($)"
+                    type="number" min="0" step="0.01" inputMode="decimal"
+                    onChange={e => update(piece.id, { price: e.target.value })}
+                  />
+                  <input
+                    style={input} value={piece.medium} placeholder={MEDIUM_LABEL[piece.kind]}
                     onChange={e => update(piece.id, { medium: e.target.value })}
                   />
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                    <input
-                      style={input} value={piece.size} placeholder="Size"
-                      onChange={e => update(piece.id, { size: e.target.value })}
-                    />
-                    <input
-                      style={input} value={piece.year} placeholder="Year"
-                      type="number" min="1900" max="2100"
-                      onChange={e => update(piece.id, { year: e.target.value })}
-                    />
-                  </div>
+
+                  {piece.kind === 'clothing' ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {GARMENT_TYPES.map(t => (
+                          <button
+                            key={t}
+                            type="button"
+                            aria-pressed={piece.garmentType === t}
+                            onClick={() => update(piece.id, { garmentType: piece.garmentType === t ? '' : t })}
+                            style={pill(piece.garmentType === t)}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {GARMENT_SIZES.map(sz => {
+                          const on = piece.sizes.includes(sz)
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => update(piece.id, {
+                                sizes: on ? piece.sizes.filter(s => s !== sz) : [...piece.sizes, sz],
+                              })}
+                              style={pill(on)}
+                            >
+                              {sz}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      <input
+                        style={input} value={piece.size} placeholder={SIZE_LABEL[piece.kind]}
+                        onChange={e => update(piece.id, { size: e.target.value })}
+                      />
+                      <input
+                        style={input} value={piece.year} placeholder="Year"
+                        type="number" min="1900" max="2100"
+                        onChange={e => update(piece.id, { year: e.target.value })}
+                      />
+                    </div>
+                  )}
+
                   <input
-                    style={input} value={piece.weightOz} placeholder="Weight (oz)"
-                    type="number" min="0" step="0.1"
+                    style={input} value={piece.weightOz} placeholder="Weight (oz) — for shipping"
+                    type="number" min="0" step="0.1" inputMode="decimal"
                     onChange={e => update(piece.id, { weightOz: e.target.value })}
                   />
                   <p className="font-mono text-[10px] text-warm-gray">by {artistName}</p>
@@ -416,15 +529,35 @@ export default function GalleryUploadPage() {
               ))}
             </div>
 
-            <div className="border-t border-warm-gray-light mt-8 pt-6 flex items-center gap-4 flex-wrap">
-              <button className="btn-outline" onClick={saveAll} disabled={busy || !readyCount}>
-                {busy ? 'Saving…' : `Submit ${readyCount || ''} Piece${readyCount !== 1 ? 's' : ''}`.replace('  ', ' ')}
-              </button>
-              {readyCount < pieces.length && (
-                <span className="font-mono text-[11px] text-warm-gray">
-                  {pieces.length - readyCount} still need a title
+            {/* Seller agreement. Nothing is reviewed before it goes live, so this
+                is the thing standing behind every listing — keep it plain enough
+                that someone actually reads it. */}
+            <div className="border-t border-warm-gray-light mt-8 pt-6">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={e => setAgreed(e.target.checked)}
+                  style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0, accentColor: 'rgb(var(--color-ink))' }}
+                />
+                <span className="font-mono text-[11px] text-warm-gray leading-relaxed">
+                  I'm listing my own work, the photos are mine, and it's legal to
+                  sell. I'll ship within 5 business days of a sale and refund a
+                  buyer if I can't. Art Saturated can take a listing down at any
+                  time, and anyone can report one.
                 </span>
-              )}
+              </label>
+
+              <div className="flex items-center gap-4 flex-wrap mt-5">
+                <button className="btn-outline" onClick={saveAll} disabled={busy || !readyCount || !agreed}>
+                  {busy ? 'Listing…' : `List ${readyCount || ''} Item${readyCount !== 1 ? 's' : ''}`.replace('  ', ' ')}
+                </button>
+                {readyCount < pieces.length && (
+                  <span className="font-mono text-[11px] text-warm-gray">
+                    {pieces.length - readyCount} still need a title and price
+                  </span>
+                )}
+              </div>
             </div>
           </>
         )}

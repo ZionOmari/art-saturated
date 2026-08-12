@@ -97,6 +97,29 @@ Firebase refuses to delete functions you removed from source. Delete explicitly:
 functions emulator in tests** — `functions/.env` holds live Stripe and Gmail
 credentials and triggers would fire for real.
 
+**Anyone can sell, and nothing is approved first.** A member ($7.99/month) lists
+art, sculpture or clothing at `/gallery-upload` and it goes **straight into the
+shop** — no review gate, no commission, the seller keeps the full price. Three
+things hold the line instead:
+
+1. the seller agreement they tick at upload (`TERMS_VERSION` in `data/storage.js`
+   — bump it if the wording changes materially),
+2. the **Review** tab in the admin panel: a swipe deck of everything not yet
+   looked at. Right clears, left flags (stays live, marked), and Take Down is a
+   separate deliberate button that sets `active: false`,
+3. **reports** — anyone, signed in or not, can report a listing from its product
+   page. They land in Review → Reported.
+
+`firestore.rules` is the real boundary here, not the UI: a member may only create
+a listing owned by themselves, priced above zero, unreviewed, within a field
+allowlist. `downloadPath` is deliberately absent from that allowlist — it names a
+file under `releases/` that settlement signs and emails, so a seller who could
+set it could have someone else's paid release delivered. `tests/rules.test.js`
+covers each of these; run `npm test` before touching that rule.
+
+Sculpture has no category of its own: it lives in Art and is filtered by
+`listingType === 'sculpture'`, which keeps `medium` as the seller's own words.
+
 **Paid downloads:** the product form has a "Paid Download" field (all categories).
 It uploads to `releases/<slug>/`, which is admin-only in `storage.rules`, and
 stores the **path** — never a download URL, because a `getDownloadURL` token is
