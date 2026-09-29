@@ -4,6 +4,8 @@ import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc, 
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import { useAuth, hasRole, normalizeTypes } from '../context/AuthContext'
+import { slugify, validateSlug, claimSlug, releaseSlug } from '../data/slugs'
+import { getArtistPosts, createPost, updatePost, publishPost, unpublishPost, deletePost } from '../data/blogPosts'
 import Footer from '../components/Footer'
 import ProfileAvatar from '../components/ProfileAvatar'
 import Spinner from '../components/Spinner'
@@ -259,6 +261,18 @@ function Profile() {
   const [bannerBusy,   setBannerBusy]   = useState(false)
   const bannerInputRef = useRef()
   const [artistSaved,  setArtistSaved]  = useState(false)
+  const [artistSlug,   setArtistSlug]   = useState(profile?.slug || '')
+  const [slugError,    setSlugError]    = useState('')
+  const [slugChecking, setSlugChecking] = useState(false)
+  const [themeBgType,  setThemeBgType]  = useState(profile?.theme?.backgroundType || 'gradient')
+  const [themeColor1,  setThemeColor1]  = useState(profile?.theme?.color1 || '#f5f0e8')
+  const [themeColor2,  setThemeColor2]  = useState(profile?.theme?.color2 || '#e8e0d4')
+  const [blogPosts,      setBlogPosts]      = useState([])
+  const [blogLoading,    setBlogLoading]    = useState(false)
+  const [blogEditing,    setBlogEditing]    = useState(null)
+  const [blogTitle,      setBlogTitle]      = useState('')
+  const [blogBody,       setBlogBody]       = useState('')
+  const [blogBusy,       setBlogBusy]       = useState(false)
   const [submissions,        setSubmissions]        = useState([])
   const [subsLoading,        setSubsLoading]        = useState(false)
   const [commissionRequests, setCommissionRequests] = useState([])
@@ -271,6 +285,12 @@ function Profile() {
   useEffect(() => {
     if (isCreator) fetchSellerOrders().then(setSellerOrders).catch(() => {})
   }, [isCreator])
+  useEffect(() => {
+    if (isCreator && tab === 'blog') {
+      setBlogLoading(true)
+      getArtistPosts(user.uid).then(setBlogPosts).catch(() => {}).finally(() => setBlogLoading(false))
+    }
+  }, [isCreator, tab])
 
   useEffect(() => {
   }, [tab, user?.email])
@@ -362,7 +382,17 @@ function Profile() {
   }
 
   async function handleSaveArtistProfile() {
-    await updateArtistProfile({ artistBio, instagram: artistInsta, website: artistSite, artistPublic, bannerURL: artistBanner })
+    if (artistSlug && artistSlug !== profile?.slug) {
+      setSlugChecking(true)
+      const err = await validateSlug(artistSlug, user.uid)
+      setSlugChecking(false)
+      if (err) { setSlugError(err); return }
+      if (profile?.slug) await releaseSlug(profile.slug).catch(() => {})
+      await claimSlug(artistSlug, user.uid)
+    }
+    setSlugError('')
+    const theme = { backgroundType: themeBgType, color1: themeColor1, color2: themeColor2 }
+    await updateArtistProfile({ artistBio, instagram: artistInsta, website: artistSite, artistPublic, bannerURL: artistBanner, slug: artistSlug || null, theme })
     setArtistSaved(true)
     setTimeout(() => setArtistSaved(false), 1600)
   }
@@ -421,6 +451,7 @@ function Profile() {
           <>
             <button style={tabBtn(tab === 'submissions')} onClick={() => setTab('submissions')}>Submissions</button>
             <button style={tabBtn(tab === 'commissions')} onClick={() => setTab('commissions')}>Commissions</button>
+            <button style={tabBtn(tab === 'blog')} onClick={() => setTab('blog')}>Blog</button>
           </>
         )}
         <button style={tabBtn(tab === 'wishlist')}    onClick={() => setTab('wishlist')}>Wishlist</button>
@@ -953,14 +984,95 @@ function Profile() {
               {bannerBusy && <span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#a08060' }}>uploading…</span>}
             </div>
             <input ref={bannerInputRef} type="file" accept="image/*" onChange={handleBannerUpload} style={{ display: 'none' }} />
+
+            <div style={{ marginTop: '28px' }}>
+              <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>
+                Username <span style={{ color: '#a08060', fontWeight: 400 }}>(your profile URL)</span>
+              </p>
+              <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#7a5030', marginBottom: '12px', lineHeight: 1.6 }}>
+                This sets your public profile link: artsaturated.com/artists/<strong>{artistSlug || '...'}</strong>
+              </p>
+              <input
+                style={{ ...inputStyle, marginBottom: slugError ? '6px' : '4px' }}
+                type="text"
+                placeholder={slugify(profile?.name || 'your-name')}
+                value={artistSlug}
+                onChange={e => { setArtistSlug(slugify(e.target.value)); setSlugError('') }}
+              />
+              {slugError && (
+                <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#b94040', margin: '0 0 8px' }}>{slugError}</p>
+              )}
+              {!artistSlug && profile?.name && (
+                <button
+                  type="button"
+                  onClick={() => setArtistSlug(slugify(profile.name))}
+                  style={{ fontFamily: 'monospace', fontSize: '11px', color: '#a08060', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                >
+                  Use "{slugify(profile.name)}"
+                </button>
+              )}
+            </div>
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
 
-          {/* Step 3 — Visibility */}
+          {/* Step 3 — Profile Theme */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f5f0e8', background: 'rgb(var(--color-ink))', padding: '3px 7px' }}>03</span>
+              <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>Profile Theme</p>
+            </div>
+            <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', marginBottom: '20px', lineHeight: '1.75' }}>
+              Customize the background of your public profile page.
+            </p>
+
+            <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>Background Type</p>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+              <button style={toggleStyle(themeBgType === 'gradient')} onClick={() => setThemeBgType('gradient')}>Gradient</button>
+              <button style={toggleStyle(themeBgType === 'solid')} onClick={() => setThemeBgType('solid')}>Solid</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              <div>
+                <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>
+                  {themeBgType === 'gradient' ? 'Start Color' : 'Background Color'}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input type="color" value={themeColor1} onChange={e => setThemeColor1(e.target.value)}
+                    style={{ width: '44px', height: '44px', border: '1px solid #d4c9bb', padding: '2px', cursor: 'pointer', background: 'transparent' }} />
+                  <input type="text" value={themeColor1} onChange={e => setThemeColor1(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '12px', width: '90px', padding: '6px 8px', border: '1px solid #d4c9bb', background: 'transparent', color: 'rgb(var(--color-ink))' }} />
+                </div>
+              </div>
+              {themeBgType === 'gradient' && (
+                <div>
+                  <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>End Color</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <input type="color" value={themeColor2} onChange={e => setThemeColor2(e.target.value)}
+                      style={{ width: '44px', height: '44px', border: '1px solid #d4c9bb', padding: '2px', cursor: 'pointer', background: 'transparent' }} />
+                    <input type="text" value={themeColor2} onChange={e => setThemeColor2(e.target.value)}
+                      style={{ fontFamily: 'monospace', fontSize: '12px', width: '90px', padding: '6px 8px', border: '1px solid #d4c9bb', background: 'transparent', color: 'rgb(var(--color-ink))' }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Live preview */}
+            <div style={{
+              height: '60px', border: '1px solid #d4c9bb', marginBottom: '8px',
+              background: themeBgType === 'gradient'
+                ? `linear-gradient(135deg, ${themeColor1}, ${themeColor2})`
+                : themeColor1,
+            }} />
+            <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#8a857d', marginBottom: '0' }}>Preview — this background appears on your profile page.</p>
+          </div>
+
+          <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
+
+          {/* Step 4 — Visibility */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase', color: '#f5f0e8', background: 'rgb(var(--color-ink))', padding: '3px 7px' }}>04</span>
               <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>Visibility</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', padding: '16px', border: '1px solid #e8e0d4', marginBottom: '24px', background: artistPublic ? 'rgba(160,128,96,0.07)' : 'transparent' }}>
@@ -1034,6 +1146,109 @@ function Profile() {
       )}
 
       {/* ── Settings ───────────────────────────────────────────── */}
+      {/* ── Blog (creator) ─────────────────────────────────── */}
+      {tab === 'blog' && isCreator && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>
+              Your Blog Posts
+            </p>
+            {!blogEditing && (
+              <button onClick={() => { setBlogEditing('new'); setBlogTitle(''); setBlogBody('') }}
+                style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '8px 16px', border: '1px solid rgb(var(--color-ink))', background: 'transparent', color: 'rgb(var(--color-ink))', cursor: 'pointer' }}>
+                + New Post
+              </button>
+            )}
+          </div>
+
+          {blogEditing && (
+            <div style={{ border: '1px solid #d4c9bb', padding: '20px', marginBottom: '24px', background: 'rgb(var(--color-paper))' }}>
+              <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>Title</p>
+              <input style={{ ...inputStyle, marginBottom: '16px' }} type="text" placeholder="Post title" value={blogTitle} onChange={e => setBlogTitle(e.target.value)} />
+              <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', marginBottom: '8px' }}>Body</p>
+              <textarea style={{ ...inputStyle, minHeight: '180px', resize: 'vertical' }} placeholder="Write your post…" value={blogBody} onChange={e => setBlogBody(e.target.value)} />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button disabled={blogBusy || !blogTitle.trim()}
+                  onClick={async () => {
+                    setBlogBusy(true)
+                    try {
+                      if (blogEditing === 'new') {
+                        await createPost({ artistUid: user.uid, title: blogTitle, body: blogBody })
+                      } else {
+                        await updatePost(blogEditing, { title: blogTitle, body: blogBody })
+                      }
+                      setBlogEditing(null)
+                      getArtistPosts(user.uid).then(setBlogPosts).catch(() => {})
+                    } finally { setBlogBusy(false) }
+                  }}
+                  className="btn-outline" style={{ display: 'inline-block' }}>
+                  {blogBusy ? 'Saving…' : 'Save Draft'}
+                </button>
+                <button onClick={() => setBlogEditing(null)}
+                  style={{ fontFamily: 'monospace', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '9px 16px', background: 'transparent', border: '1px solid #d4c9bb', color: '#8a857d', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {blogLoading ? <Spinner size={16} color="#3d2810" /> : blogPosts.length === 0 && !blogEditing ? (
+            <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-warm-gray))' }}>
+              No posts yet. Click "+ New Post" to start writing.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {blogPosts.map(post => {
+                const date = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null
+                return (
+                  <div key={post.id} style={{ border: '1px solid #e8e0d4', padding: '16px', background: 'rgb(var(--color-paper))' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontFamily: 'serif', fontSize: '1.1rem', color: 'rgb(var(--color-ink))', margin: '0 0 4px', fontWeight: 400 }}>{post.title}</p>
+                        <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#8a857d', margin: 0 }}>
+                          {date ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                          {' · '}
+                          <span style={{ color: post.published ? '#3a7a40' : '#b97a30' }}>
+                            {post.published ? 'Published' : 'Draft'}
+                          </span>
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                        <button onClick={() => { setBlogEditing(post.id); setBlogTitle(post.title); setBlogBody(post.body) }}
+                          style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid #d4c9bb', background: 'transparent', color: '#7a5030', cursor: 'pointer' }}>
+                          Edit
+                        </button>
+                        <button onClick={async () => {
+                            if (post.published) { await unpublishPost(post.id) } else { await publishPost(post.id) }
+                            getArtistPosts(user.uid).then(setBlogPosts).catch(() => {})
+                          }}
+                          style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid #d4c9bb', background: 'transparent', color: post.published ? '#b97a30' : '#3a7a40', cursor: 'pointer' }}>
+                          {post.published ? 'Unpublish' : 'Publish'}
+                        </button>
+                        <button onClick={async () => {
+                            if (!window.confirm('Delete this post?')) return
+                            await deletePost(post.id)
+                            setBlogPosts(prev => prev.filter(p => p.id !== post.id))
+                          }}
+                          style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid #d4c9bb', background: 'transparent', color: '#b94040', cursor: 'pointer' }}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    {post.body && (
+                      <p style={{ fontFamily: 'monospace', fontSize: '12px', color: 'rgb(var(--color-warm-gray))', marginTop: '10px', lineHeight: 1.6,
+                        overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                        {post.body}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'settings' && (
         <>
           <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgb(var(--color-warm-gray))', marginBottom: '10px' }}>

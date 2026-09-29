@@ -13,6 +13,14 @@ export async function getArtistProfile(uid) {
   return snap.exists() ? { uid: snap.id, ...snap.data() } : null
 }
 
+/** Single artist profile by slug — resolves slug → uid via the index, then fetches the user doc */
+export async function getArtistBySlug(slug) {
+  const slugSnap = await getDoc(doc(db, 'artistSlugs', slug))
+  if (!slugSnap.exists()) return null
+  const uid = slugSnap.data().uid
+  return getArtistProfile(uid)
+}
+
 /** All approved submissions for one artist, newest first.
  *  Returns [] silently if the viewer lacks read permission (e.g. not logged in). */
 export async function getArtistWork(uid) {

@@ -14,7 +14,7 @@ function ArtistCard({ artist }) {
 
   return (
     <button
-      onClick={() => navigate(`/artists/${artist.uid}`)}
+      onClick={() => navigate(`/artists/${artist.slug || artist.uid}`)}
       style={{
         display: 'flex', flexDirection: 'column', textAlign: 'left',
         background: 'rgb(var(--color-paper))',

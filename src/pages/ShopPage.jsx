@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import ProductGrid from '../components/ProductGrid'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
@@ -8,6 +8,7 @@ import DrawingCanvas from '../components/DrawingCanvas'
 import CommissionForm from '../components/CommissionForm'
 import { CATEGORIES } from '../data/products'
 import { fetchShopProducts } from '../data/storage'
+import { getArtistsWithWork } from '../data/artists'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
 
 const ART_MEDIUMS     = ['All Art', 'Sculpture', 'Pen', 'Crayon', 'Mixed', 'Prints']
@@ -16,12 +17,97 @@ const VINTAGE_TYPES   = ['All Vintage Tech', 'VHS Players', 'Vintage Cameras', '
 const MEDIA_TYPES     = ['All Physical Media', 'Local Legends', 'New Arrivals', 'Vinyl', 'CDs', 'Cassette Tapes', '8 Tracks', 'VHS Tapes']
 const CLOTHING_TYPES  = ['All Clothing', 'Tops', 'Bottoms', 'Accessories', 'Custom / One of One']
 
+const SHOP_VIEWS = ['Categories', 'By Artist', 'By Art']
+
+function ShopViewToggle({ active, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginBottom: '2rem' }}>
+      {SHOP_VIEWS.map(v => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          style={{
+            fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.1em',
+            textTransform: 'uppercase', padding: '8px 18px',
+            border: '1px solid',
+            borderColor: active === v ? 'rgb(var(--color-ink))' : 'rgb(var(--color-warm-gray-light))',
+            background: active === v ? 'rgb(var(--color-ink))' : 'transparent',
+            color: active === v ? 'rgb(var(--color-cream))' : 'rgb(var(--color-warm-gray))',
+            cursor: 'pointer', transition: 'all 0.15s',
+          }}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ArtistShopCard({ artist }) {
+  const navigate = useNavigate()
+  const preview = (artist.work || []).slice(0, 3)
+  const initials = (artist.name || 'A').charAt(0).toUpperCase()
+
+  return (
+    <button
+      onClick={() => navigate(`/artists/${artist.slug || artist.uid}`)}
+      style={{
+        display: 'flex', flexDirection: 'column', textAlign: 'left',
+        background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.1)',
+        cursor: 'pointer', padding: 0, transition: 'transform 0.15s, box-shadow 0.15s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(26,18,8,0.1)' }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}
+    >
+      {/* Preview images */}
+      <div style={{ display: 'grid', gridTemplateColumns: preview.length > 1 ? '1fr 1fr 1fr' : '1fr', aspectRatio: '16/7', overflow: 'hidden', background: 'rgb(var(--color-warm-gray-light))' }}>
+        {preview.length > 0 ? preview.map((w, i) => (
+          <img key={i} src={w.imageURL} alt={w.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        )) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: '2rem', opacity: 0.25 }}>🎨</span>
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px' }}>
+        <div style={{
+          width: '36px', height: '36px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+          background: 'rgb(var(--color-warm-gray-light))',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {artist.photoURL
+            ? <img src={artist.photoURL} alt={artist.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-earth))', fontWeight: 600 }}>{initials}</span>
+          }
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontFamily: 'serif', fontSize: '1rem', color: 'rgb(var(--color-ink))', margin: 0, lineHeight: 1.2 }}>
+            {artist.name || 'Artist'}
+          </p>
+          <p style={{ fontFamily: 'monospace', fontSize: '10px', color: 'rgb(var(--color-earth))', margin: '3px 0 0', letterSpacing: '0.06em' }}>
+            {artist.work?.length || 0} {artist.work?.length === 1 ? 'piece' : 'pieces'}
+          </p>
+        </div>
+        <span style={{ fontFamily: 'monospace', fontSize: '10px', color: 'rgb(var(--color-warm-gray))', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          View →
+        </span>
+      </div>
+    </button>
+  )
+}
+
 export default function ShopPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [showCommission, setShowCommission] = useState(false)
   const [products, setProducts] = useState([])
   const [loadState, setLoadState] = useState('loading')  // 'loading' | 'ready' | 'error'
   const [searchQuery, setSearchQuery] = useState('')
+  const [shopView, setShopView] = useState('Categories')
+  const [artists, setArtists] = useState([])
+  const [artistsLoading, setArtistsLoading] = useState(false)
 
   const activeFilter  = searchParams.get('cat') || null
 
@@ -35,6 +121,15 @@ export default function ShopPage() {
   }, [])
 
   useEffect(() => { loadProducts() }, [loadProducts])
+
+  useEffect(() => {
+    if (shopView !== 'By Artist' || artists.length > 0) return
+    setArtistsLoading(true)
+    getArtistsWithWork()
+      .then(setArtists)
+      .catch(() => setArtists([]))
+      .finally(() => setArtistsLoading(false))
+  }, [shopView, artists.length])
 
   // Only surface categories that actually have listings. (Physical Media used to
   // be pinned open for the Enigma preorder spotlight; the album is a normal
@@ -160,14 +255,21 @@ export default function ShopPage() {
   const pillStyle       = darkBg ? { color: 'rgba(255,255,255,0.65)', borderColor: 'rgba(255,255,255,0.22)' } : {}
   const pillActiveStyle = darkBg ? { background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.95)', borderColor: 'rgba(255,255,255,0.5)' } : {}
 
+  const allArt = products
+    .filter(p => p.artistUid)
+    .slice()
+    .sort((a, b) => (isUnavailable(a) ? 1 : 0) - (isUnavailable(b) ? 1 : 0))
+
   if (!activeFilter) {
     return (
       <main className="pt-[60px]" style={{ minHeight: '100vh' }}>
         <section className="max-w-5xl mx-auto px-6 pt-16 pb-24">
-          <div className="mb-14 text-center">
+          <div className="mb-10 text-center">
             <h1 className="font-serif text-[2.8rem] font-normal mb-3">Shop</h1>
             <p className="eyebrow tracking-[0.2em]">choose your path</p>
           </div>
+
+          <ShopViewToggle active={shopView} onChange={setShopView} />
 
           {/* Search */}
           <div className="mb-10 max-w-md mx-auto">
@@ -188,47 +290,112 @@ export default function ShopPage() {
             )}
           </div>
 
-          {!searchResults && loadState === 'loading' && visibleCategories.length === 0 && (
-            <div className="flex justify-center py-20"><Spinner size={22} color="#3d2810" /></div>
+          {/* ── Categories view ──────────────────────────────── */}
+          {shopView === 'Categories' && !searchResults && (
+            <>
+              {loadState === 'loading' && visibleCategories.length === 0 && (
+                <div className="flex justify-center py-20"><Spinner size={22} color="#3d2810" /></div>
+              )}
+
+              {loadState === 'error' && (
+                <div className="flex flex-col items-center gap-5 py-20 text-center">
+                  <p className="font-mono text-[13px] text-warm-gray">The shop couldn't load. Check your connection and try again.</p>
+                  <button onClick={loadProducts} className="btn-outline">Retry</button>
+                </div>
+              )}
+
+              {loadState !== 'error' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {visibleCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => handleCategoryClick(cat)}
+                      className="group text-left"
+                      style={{
+                        padding: '3rem 2.5rem',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                        background: 'rgba(0,0,0,0.02)',
+                        transition: 'background 0.2s, border-color 0.2s',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(0,0,0,0.05)'
+                        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.25)'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(0,0,0,0.02)'
+                        e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'
+                      }}
+                    >
+                      <span className="block font-serif text-[1.9rem] font-normal leading-tight mb-2">
+                        {cat}
+                      </span>
+                      <span className="block font-mono text-[11px] tracking-widest uppercase" style={{ color: 'rgba(0,0,0,0.35)' }}>
+                        explore →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
-          {!searchResults && loadState === 'error' && (
-            <div className="flex flex-col items-center gap-5 py-20 text-center">
-              <p className="font-mono text-[13px] text-warm-gray">The shop couldn't load. Check your connection and try again.</p>
-              <button onClick={loadProducts} className="btn-outline">Retry</button>
-            </div>
+          {/* ── Browse by Artist view ────────────────────────── */}
+          {shopView === 'By Artist' && !searchResults && (
+            <>
+              <div className="text-center mb-8">
+                <p className="font-mono text-[11px] text-warm-gray tracking-wide">
+                  Explore work by the artists who make it.
+                </p>
+              </div>
+
+              {artistsLoading ? (
+                <div className="flex justify-center py-20"><Spinner size={22} color="#3d2810" /></div>
+              ) : artists.length === 0 ? (
+                <p className="font-mono text-[13px] text-warm-gray text-center py-16">No artists listed yet.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                    {artists.map(a => <ArtistShopCard key={a.uid} artist={a} />)}
+                  </div>
+                  <div className="text-center mt-10">
+                    <button
+                      onClick={() => navigate('/artists')}
+                      style={{
+                        fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em',
+                        textTransform: 'uppercase', padding: '10px 24px',
+                        border: '1px solid rgb(var(--color-warm-gray-light))',
+                        background: 'transparent', color: 'rgb(var(--color-ink))',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgb(var(--color-ink))'; e.currentTarget.style.color = 'rgb(var(--color-cream))' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgb(var(--color-ink))' }}
+                    >
+                      View all artists →
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
           )}
 
-          {!searchResults && loadState !== 'error' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {visibleCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => handleCategoryClick(cat)}
-                className="group text-left"
-                style={{
-                  padding: '3rem 2.5rem',
-                  border: '1px solid rgba(0,0,0,0.1)',
-                  background: 'rgba(0,0,0,0.02)',
-                  transition: 'background 0.2s, border-color 0.2s',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(0,0,0,0.05)'
-                  e.currentTarget.style.borderColor = 'rgba(0,0,0,0.25)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'rgba(0,0,0,0.02)'
-                  e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'
-                }}
-              >
-                <span className="block font-serif text-[1.9rem] font-normal leading-tight mb-2">
-                  {cat}
-                </span>
-                <span className="block font-mono text-[11px] tracking-widest uppercase" style={{ color: 'rgba(0,0,0,0.35)' }}>
-                  explore →
-                </span>
-              </button>
-            ))}
-          </div>}
+          {/* ── Browse by Art view ───────────────────────────── */}
+          {shopView === 'By Art' && !searchResults && (
+            <>
+              <div className="text-center mb-8">
+                <p className="font-mono text-[11px] text-warm-gray tracking-wide">
+                  All artwork across every artist — one gallery.
+                </p>
+              </div>
+
+              {loadState === 'loading' ? (
+                <div className="flex justify-center py-20"><Spinner size={22} color="#3d2810" /></div>
+              ) : allArt.length === 0 ? (
+                <p className="font-mono text-[13px] text-warm-gray text-center py-16">No artwork listed yet.</p>
+              ) : (
+                <ProductGrid products={allArt} pageSize={24} />
+              )}
+            </>
+          )}
         </section>
         <Footer />
       </main>

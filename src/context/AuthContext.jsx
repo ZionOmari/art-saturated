@@ -171,10 +171,18 @@ export function AuthProvider({ children }) {
     setProfile(prev => ({ ...prev, name }))
   }
 
-  async function updateArtistProfile({ artistBio, instagram, website, artistPublic, bannerURL }) {
+  async function updateArtistProfile({ artistBio, instagram, website, artistPublic, bannerURL, slug, theme, externalLinks }) {
     if (!user) return
     const ref     = doc(db, 'users', user.uid)
-    const updates = { artistBio, instagram, website, artistPublic, bannerURL }
+    const updates = {}
+    if (artistBio !== undefined)    updates.artistBio    = artistBio
+    if (instagram !== undefined)    updates.instagram    = instagram
+    if (website !== undefined)      updates.website      = website
+    if (artistPublic !== undefined) updates.artistPublic = artistPublic
+    if (bannerURL !== undefined)    updates.bannerURL    = bannerURL
+    if (slug !== undefined)         updates.slug         = slug
+    if (theme !== undefined)        updates.theme        = theme
+    if (externalLinks !== undefined) updates.externalLinks = externalLinks
     await setDoc(ref, updates, { merge: true })
     setProfile(prev => ({ ...prev, ...updates }))
   }
