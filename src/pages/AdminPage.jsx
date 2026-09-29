@@ -19,6 +19,8 @@ import { addTask, addBusinessDays, todayStr, TASK_TYPES } from '../data/tasks'
 import { approveSubmission } from '../data/events'
 import { applyWatermark } from '../lib/watermark'
 import BarcodeScanner from '../components/BarcodeScanner'
+import CdMockup from '../components/CdMockup'
+import { shippingRequest, getShopOrderRates } from '../lib/shipping'
 
 // ─────────────────────────────────────────────────────────────────────
 
@@ -452,9 +454,7 @@ function OrdersPanel() {
   const [bulkBusy,    setBulkBusy]    = useState(false)
   const [labelState,  setLabelState]  = useState({})   // { [orderId]: { phase, rates, selectedRate, error } }
 
-  // Shippo callable functions
-  const fnGetRates     = httpsCallable(functions, 'getShippingRates')
-  const fnBuyLabel     = httpsCallable(functions, 'purchaseShippingLabel')
+  // Shippo goes through Firestore requests (lib/shipping.js) — callables 403.
 
   function setLS(orderId, patch) {
     setLabelState(prev => ({ ...prev, [orderId]: { ...prev[orderId], ...patch } }))
@@ -463,7 +463,7 @@ function OrdersPanel() {
   async function fetchRates(orderId) {
     setLS(orderId, { phase: 'fetching', rates: null, selectedRate: null, error: null })
     try {
-      const { data } = await fnGetRates({ orderId })
+      const data = await getShopOrderRates(orderId)
       setLS(orderId, { phase: 'picking', rates: data })
     } catch (err) {
       setLS(orderId, { phase: 'error', error: err.message || 'Failed to fetch rates.' })
@@ -475,7 +475,7 @@ function OrdersPanel() {
     if (!ls?.selectedRate) return
     setLS(orderId, { phase: 'buying' })
     try {
-      const { data } = await fnBuyLabel({ orderId, rateObjectId: ls.selectedRate })
+      const data = await shippingRequest({ action: 'buy_label', kind: 'order', orderId, rateObjectId: ls.selectedRate })
       setOrders(prev => prev.map(o => o.id === orderId
         ? { ...o, status: 'shipped', trackingNumber: data.trackingNumber, labelUrl: data.labelUrl }
         : o
@@ -1328,10 +1328,40 @@ function FeedbackPanel() {
   )
 }
 
+// CD printing orders. New orders are paid before they arrive here; changing
+// the status emails the customer (onQuoteRequestUpdated), and marking a
+// deposit order "ready" sends them the balance link.
+const CD_STATUSES = ['paid', 'in_production', 'ready', 'shipped', 'completed', 'cancelled']
+const CD_STATUS_LABEL = { pending_payment: 'unpaid', paid: 'paid · queued', in_production: 'printing', ready: 'ready', shipped: 'shipped', completed: 'done', cancelled: 'cancelled',
+  // legacy quote-request statuses
+  pending: 'quote', confirmed: 'confirmed', fulfilled: 'fulfilled' }
+const CD_STATUS_COLOR = { pending_payment: '#8a857d', paid: '#b97a20', in_production: '#3a3a7a', ready: '#1a5c1a', shipped: '#1a5c1a', completed: '#555', cancelled: '#7a2020' }
+const CD_PACK = { sleeve: 'Disc only', slim: 'Slim case', jewel: 'Jewel case' }
+const CD_ART_LABEL = { disc: 'Disc face', panel0: 'Front', panel1: 'Panel 2', panel2: 'Panel 3', panel3: 'Panel 4', tray: 'Tray card' }
+const usd = c => `$${((c || 0) / 100).toFixed(2)}`
+
 function CDOrdersPanel() {
-  const [orders,  setOrders]  = useState([])
-  const [loading, setLoading] = useState(true)
+  const [orders,   setOrders]   = useState([])
+  const [loading,  setLoading]  = useState(true)
   const [expanded, setExpanded] = useState(null)
+  const [showUnpaid, setShowUnpaid] = useState(false)
+  const [tracking, setTracking] = useState({})
+  const [labelBusy, setLabelBusy] = useState({})   // { [id]: 'busy' | error message }
+
+  // Buys postage for the service the customer paid for, then the order flips
+  // to shipped and onQuoteRequestUpdated emails them the tracking number.
+  async function buyLabel(o) {
+    if (!window.confirm(`Buy a ${o.shippingService ? `${o.shippingService.carrier} ${o.shippingService.service}` : 'cheapest-rate'} label for this order? This charges your Shippo account.`)) return
+    setLabelBusy(b => ({ ...b, [o.id]: 'busy' }))
+    try {
+      const r = await shippingRequest({ action: 'buy_label', kind: 'cd', orderId: o.id })
+      setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: 'shipped', trackingNumber: r.trackingNumber, labelUrl: r.labelUrl } : x))
+      setLabelBusy(b => ({ ...b, [o.id]: r.overCharged ? 'Bought — note: the label cost more than 25% over what the customer paid.' : null }))
+      if (r.labelUrl) window.open(r.labelUrl, '_blank', 'noopener')
+    } catch (e) {
+      setLabelBusy(b => ({ ...b, [o.id]: e.message }))
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -1345,99 +1375,204 @@ function CDOrdersPanel() {
     load()
   }, [])
 
-  async function setStatus(id, status) {
-    await updateDoc(doc(db, 'quoteRequests', id), { status })
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o))
+  async function setStatus(o, status) {
+    if (status === 'cancelled' && !window.confirm('Cancel this order? Refund it in Stripe separately — this only changes the status.')) return
+    const patch = { status }
+    if (status === 'shipped' && tracking[o.id]) patch.trackingNumber = tracking[o.id].trim()
+    await updateDoc(doc(db, 'quoteRequests', o.id), patch)
+    setOrders(prev => prev.map(x => x.id === o.id ? { ...x, ...patch } : x))
   }
 
-  const statusColor = { pending: '#b97a20', confirmed: '#1a5c1a', fulfilled: '#3a3a7a', cancelled: '#7a2020' }
-
   if (loading) return <p className="font-mono text-[12px] text-warm-gray">Loading...</p>
-  if (orders.length === 0) return <p className="font-mono text-[12px] text-warm-gray text-center py-8">No CD quote requests yet.</p>
+
+  const visible = orders.filter(o => showUnpaid || o.status !== 'pending_payment')
+  const unpaidCount = orders.length - orders.filter(o => o.status !== 'pending_payment').length
 
   return (
     <div className="flex flex-col gap-3">
-      {orders.map(o => (
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="font-mono text-[11px] text-warm-gray">
+          Status changes email the customer automatically.
+        </p>
+        {unpaidCount > 0 && (
+          <label className="font-mono text-[11px] text-warm-gray flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showUnpaid} onChange={e => setShowUnpaid(e.target.checked)} />
+            Show {unpaidCount} unpaid / abandoned
+          </label>
+        )}
+      </div>
+
+      {visible.length === 0 && <p className="font-mono text-[12px] text-warm-gray text-center py-8">No CD orders yet.</p>}
+
+      {visible.map(o => {
+        const legacy = !o.uid
+        const color  = CD_STATUS_COLOR[o.status] || '#7a5030'
+        const balance = (o.totalCents || 0) - (o.amountPaidCents || 0)
+        const art = o.artwork
+          ? Object.entries(o.artwork)
+          : (o.bookletImages || []).map((u, i) => [`panel${i}`, u])
+        return (
         <div key={o.id} style={{ border: '1px solid #e8e0d4', background: '#faf8f4' }}>
-          {/* Header row */}
           <button
             onClick={() => setExpanded(expanded === o.id ? null : o.id)}
             className="w-full text-left px-4 py-3 flex items-start justify-between gap-2"
           >
-            <div>
-              <span className="font-mono text-[13px] text-ink">{o.name}</span>
-              <span className="font-mono text-[11px] text-warm-gray ml-3">{o.qty} discs · ${o.estimatedTotal?.toFixed(2)}</span>
-              <span className="font-mono text-[11px] text-warm-gray ml-3">{o.email}</span>
+            <div className="min-w-0">
+              <span className="font-mono text-[13px] text-ink">{o.albumTitle ? `${o.artistName} — ${o.albumTitle}` : o.name}</span>
+              <span className="block font-mono text-[11px] text-warm-gray">
+                {o.qty} × {CD_PACK[o.packaging] || (o.orderType === 'disc-only' ? 'Disc only' : 'Full CD')}
+                {o.totalCents ? ` · ${usd(o.totalCents)}` : o.estimatedTotal ? ` · ~$${o.estimatedTotal.toFixed(2)}` : ''}
+                {o.delivery === 'ship' ? ' · ship' : o.delivery === 'pickup' ? ' · pickup' : ''}
+                {' · '}{o.email}
+              </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase', color: statusColor[o.status] || '#7a5030', border: `1px solid ${statusColor[o.status] || '#a08060'}`, padding: '2px 6px' }}>
-                {o.status || 'pending'}
+              {o.rush && (
+                <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#fff', background: '#a04020', padding: '3px 6px' }}>
+                  rush
+                </span>
+              )}
+              {o.reorderOf && (
+                <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#3a3a7a', border: '1px solid #3a3a7a', padding: '2px 6px' }}>
+                  reorder
+                </span>
+              )}
+              {o.paymentStatus === 'deposit_paid' && (
+                <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#a04020', border: '1px solid #a04020', padding: '2px 6px' }}>
+                  owes {usd(balance)}
+                </span>
+              )}
+              <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase', color, border: `1px solid ${color}`, padding: '2px 6px' }}>
+                {CD_STATUS_LABEL[o.status] || o.status || 'pending'}
               </span>
               <span className="font-mono text-[11px] text-warm-gray">{expanded === o.id ? '▲' : '▼'}</span>
             </div>
           </button>
 
-          {/* Expanded detail */}
           {expanded === o.id && (
             <div className="px-4 pb-4 flex flex-col gap-4 border-t border-warm-gray-light">
-              {/* Track list + audio */}
-              <div className="mt-3">
-                <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Track List</p>
+              {/* Spec */}
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[12px]">
+                <span className="text-warm-gray">Customer</span><span className="text-ink">{o.name}{o.phone ? ` · ${o.phone}` : ''}</span>
+                {o.packaging && <>
+                  <span className="text-warm-gray">Packaging</span><span className="text-ink">{CD_PACK[o.packaging]}</span>
+                  {o.packaging !== 'sleeve' && <>
+                    <span className="text-warm-gray">Cover</span>
+                    <span className="text-ink">{o.panelCount}-panel · {o.stock === 'cardstock' ? 'Cardstock' : 'Standard paper'}{o.gloss ? ' · Gloss' : ''}</span>
+                    <span className="text-warm-gray">AS credit</span><span className="text-ink">{o.removeCredit ? 'Leave off' : 'Print it'}</span>
+                  </>}
+                  {o.packaging === 'jewel' && <>
+                    <span className="text-warm-gray">Spine</span><span className="text-ink">{o.artistName} — {o.albumTitle}</span>
+                  </>}
+                </>}
+                {o.totalCents > 0 && <>
+                  <span className="text-warm-gray">Paid</span>
+                  <span className="text-ink">{usd(o.amountPaidCents)} of {usd(o.totalCents)}</span>
+                </>}
+                {o.shippingAddress && <>
+                  <span className="text-warm-gray">Ship to</span>
+                  <span className="text-ink">
+                    {[o.shippingAddress.name, o.shippingAddress.street1 || o.shippingAddress.line1, o.shippingAddress.street2 || o.shippingAddress.line2,
+                      `${o.shippingAddress.city || ''}, ${o.shippingAddress.state || ''} ${o.shippingAddress.zip || o.shippingAddress.postal_code || ''}`].filter(Boolean).join(', ')}
+                    {o.shippingService?.service && <span className="block text-warm-gray">{o.shippingService.carrier} {o.shippingService.service} · customer paid {usd(o.shippingCents)}</span>}
+                  </span>
+                </>}
+              </div>
+
+              {/* Tracks + audio */}
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Track list</p>
                 {(o.trackList || []).map((title, i) => (
                   <div key={i} className="flex items-center justify-between py-1 border-b border-warm-gray-light/40">
                     <span className="font-mono text-[12px] text-ink">{i + 1}. {title}</span>
                     {o.audioFiles?.[i] && (
                       <a href={o.audioFiles[i].url} target="_blank" rel="noreferrer"
                         className="font-mono text-[10px] text-earth uppercase tracking-widest">
-                        ↓ Download
+                        ↓ Audio
                       </a>
                     )}
                   </div>
                 ))}
               </div>
 
-              {/* Booklet images */}
-              {o.bookletImages?.length > 0 && (
+              {!legacy && o.packaging && (
+                <div style={{ maxWidth: '420px' }}>
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Mock-up</p>
+                  <CdMockup packaging={o.packaging} panelCount={o.panelCount} gloss={o.gloss}
+                    art={o.artwork || {}} artistName={o.artistName} albumTitle={o.albumTitle} />
+                </div>
+              )}
+
+              {/* Artwork */}
+              {art.length > 0 && (
                 <div>
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Booklet Images</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {o.bookletImages.map((url, i) => (
-                      <a key={i} href={url} target="_blank" rel="noreferrer">
-                        <img src={url} alt={`Panel ${i + 1}`} className="w-full aspect-square object-cover border border-warm-gray-light" />
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Artwork (click for full size)</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {art.map(([k, url]) => (
+                      <a key={k} href={url} target="_blank" rel="noreferrer" className="flex flex-col gap-1">
+                        <img src={url} alt={CD_ART_LABEL[k] || k} className="w-full aspect-square object-cover border border-warm-gray-light" style={k === 'disc' ? { borderRadius: '50%' } : undefined} />
+                        <span className="font-mono text-[9px] text-warm-gray uppercase tracking-widest text-center">{CD_ART_LABEL[k] || k}</span>
                       </a>
                     ))}
                   </div>
+                  {!o.artwork?.disc && o.packaging !== 'sleeve' && !legacy && (
+                    <p className="font-mono text-[10px] text-warm-gray mt-1">No disc art uploaded — use the front cover.</p>
+                  )}
                 </div>
               )}
 
-              {/* Notes */}
               {o.notes && (
-                <div>
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-1">Notes</p>
-                  <p className="font-mono text-[12px] text-ink/70 italic">"{o.notes}"</p>
-                </div>
+                <p className="font-mono text-[12px] text-ink/70 italic">"{o.notes}"</p>
               )}
-
-              {/* Pricing summary */}
-              <div className="flex gap-4 font-mono text-[12px]">
-                <span className="text-warm-gray">${o.pricePerDisc?.toFixed(2)}/disc</span>
-                <span className="text-ink">Total: ${o.estimatedTotal?.toFixed(2)}</span>
-                <span className="text-earth">Deposit: ${o.depositAmount?.toFixed(2)}</span>
-              </div>
 
               {/* Status controls */}
-              <div className="flex gap-2 flex-wrap">
-                {['pending','confirmed','fulfilled','cancelled'].map(s => (
-                  <button key={s} onClick={() => setStatus(o.id, s)}
-                    className={`font-mono text-[10px] uppercase tracking-widest px-3 py-1.5 border transition-colors ${o.status === s ? 'bg-ink text-cream border-ink' : 'border-warm-gray-light text-warm-gray'}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
+              {legacy ? (
+                <p className="font-mono text-[10px] text-warm-gray">Old quote request (before online checkout). Handle by email.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {o.delivery === 'ship' && o.labelUrl && (
+                    <p className="font-mono text-[11px] text-ink">
+                      Label bought · {o.trackingNumber}{' '}
+                      <a href={o.labelUrl} target="_blank" rel="noreferrer" className="text-earth underline">Print label</a>
+                    </p>
+                  )}
+                  {o.delivery === 'ship' && !o.labelUrl && o.shippingAddress && (
+                    <button type="button" onClick={() => buyLabel(o)}
+                      disabled={labelBusy[o.id] === 'busy' || o.paymentStatus !== 'paid'}
+                      className="btn-outline text-[11px] disabled:opacity-40">
+                      {labelBusy[o.id] === 'busy' ? 'Buying label…'
+                        : o.paymentStatus !== 'paid' ? 'Buy label (after balance is paid)'
+                        : o.shippingService ? `Buy label — ${o.shippingService.carrier} ${o.shippingService.service}` : 'Buy label — cheapest rate'}
+                    </button>
+                  )}
+                  {labelBusy[o.id] && labelBusy[o.id] !== 'busy' && (
+                    <p className="font-mono text-[11px] text-earth">{labelBusy[o.id]}</p>
+                  )}
+                  {o.delivery === 'ship' && !o.labelUrl && (
+                    <input
+                      value={tracking[o.id] ?? o.trackingNumber ?? ''}
+                      onChange={e => setTracking(t => ({ ...t, [o.id]: e.target.value }))}
+                      placeholder="Tracking number (fill in before marking shipped)"
+                      className="font-mono text-[12px] px-3 py-2 border border-warm-gray-light bg-transparent" />
+                  )}
+                  <div className="flex gap-2 flex-wrap">
+                    {CD_STATUSES.filter(s => s !== 'shipped' || o.delivery === 'ship').map(s => (
+                      <button key={s} onClick={() => setStatus(o, s)} disabled={o.status === 'pending_payment'}
+                        className={`font-mono text-[10px] uppercase tracking-widest px-3 py-1.5 border transition-colors disabled:opacity-40 ${o.status === s ? 'bg-ink text-cream border-ink' : 'border-warm-gray-light text-warm-gray'}`}>
+                        {CD_STATUS_LABEL[s]}
+                      </button>
+                    ))}
+                  </div>
+                  {o.paymentStatus === 'deposit_paid' && o.status !== 'ready' && (
+                    <p className="font-mono text-[10px] text-warm-gray">Marking this "ready" emails the customer a link to pay the {usd(balance)} balance.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

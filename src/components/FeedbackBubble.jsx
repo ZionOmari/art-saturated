@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,19 @@ export default function FeedbackBubble() {
   const [email,     setEmail]     = useState(user?.email || '')
   const [submitted, setSubmitted] = useState(false)
   const [busy,      setBusy]      = useState(false)
+
+  // Other pages open the bubble as an inquiry (e.g. shipping outside the US):
+  // window.dispatchEvent(new CustomEvent('as:inquiry', { detail: { message } }))
+  useEffect(() => {
+    function onInquiry(e) {
+      setOpen(true)
+      setType('inquiry')
+      setMessage(e.detail?.message || '')
+      setSubmitted(false)
+    }
+    window.addEventListener('as:inquiry', onInquiry)
+    return () => window.removeEventListener('as:inquiry', onInquiry)
+  }, [])
 
   function handleOpen() {
     setOpen(o => !o)
@@ -91,10 +104,10 @@ export default function FeedbackBubble() {
           {submitted ? (
             <div style={{ textAlign: 'center', padding: '16px 0' }}>
               <p style={{ fontFamily: 'serif', fontSize: '1.1rem', color: '#1a1208', marginBottom: '6px' }}>
-                {type === 'bug' ? 'Bug reported.' : 'Suggestion sent.'}
+                {type === 'bug' ? 'Bug reported.' : type === 'inquiry' ? 'Message sent.' : 'Suggestion sent.'}
               </p>
               <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#8a5c3a' }}>
-                Thanks — we'll look into it.
+                {type === 'inquiry' ? "Thanks — we'll email you back." : "Thanks — we'll look into it."}
               </p>
             </div>
           ) : !type ? (
@@ -144,14 +157,15 @@ export default function FeedbackBubble() {
                   ←
                 </button>
                 <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#1a1208', margin: 0 }}>
-                  {type === 'bug' ? '🐛 Report a Bug' : '💡 Send a Suggestion'}
+                  {type === 'bug' ? '🐛 Report a Bug' : type === 'inquiry' ? '✉ Message Us' : '💡 Send a Suggestion'}
                 </p>
               </div>
 
               {!user && (
                 <input
                   type="email"
-                  placeholder="Your email (optional)"
+                  placeholder={type === 'inquiry' ? 'Your email (so we can reply)' : 'Your email (optional)'}
+                  required={type === 'inquiry'}
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   style={{
@@ -166,6 +180,7 @@ export default function FeedbackBubble() {
               <textarea
                 placeholder={type === 'bug'
                   ? 'What happened? Where on the site?'
+                  : type === 'inquiry' ? 'Your country, what you want to order, and any questions'
                   : 'What would make this better?'}
                 value={message}
                 onChange={e => setMessage(e.target.value)}

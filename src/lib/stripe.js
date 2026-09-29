@@ -69,6 +69,12 @@ export async function checkoutWorkshopDeposit({ customerEmail, bookingName }) {
   return waitForCheckoutUrl({ type: 'workshop_deposit', customerEmail, bookingName })
 }
 
+// CD printing order (QuoteRequestPage). The function prices it from the saved
+// order doc and decides whether this is the first payment or the balance.
+export async function checkoutCdOrder({ orderId, customerEmail }) {
+  return waitForCheckoutUrl({ type: 'cd_order', orderId, customerEmail })
+}
+
 // Artist membership — $7.99/month, gates uploading new work.
 export async function checkoutArtistSubscription({ customerEmail }) {
   return waitForCheckoutUrl({ type: 'artist_subscription', customerEmail })

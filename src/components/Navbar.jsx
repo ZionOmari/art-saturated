@@ -59,6 +59,7 @@ export default function Navbar() {
           <NavLink to="/shop" className={linkClass}>Shop</NavLink>
           <NavLink to="/artists" className={linkClass}>Artists</NavLink>
           <NavLink to="/consult" className={linkClass}>Consultations</NavLink>
+          <NavLink to="/cd-printing" className={linkClass}>CD Printing</NavLink>
           <NavLink to="/about" className={linkClass}>About</NavLink>
           {user ? (
             <NavLink to="/account" className={linkClass}>Account</NavLink>
@@ -144,6 +145,7 @@ export default function Navbar() {
           <NavLink to="/shop" className={drawerLinkClass}>Shop</NavLink>
           <NavLink to="/artists" className={drawerLinkClass}>Artists</NavLink>
           <NavLink to="/consult" className={drawerLinkClass}>Consultations</NavLink>
+          <NavLink to="/cd-printing" className={drawerLinkClass}>CD Printing</NavLink>
           <NavLink to="/about" className={drawerLinkClass}>About</NavLink>
           {user ? (
             <NavLink to="/account" className={drawerLinkClass}>Account</NavLink>

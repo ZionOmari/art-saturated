@@ -60,6 +60,7 @@ const ConsultPage       = lazy(() => import('./pages/ConsultPage'))
 const ArtistsPage       = lazy(() => import('./pages/ArtistsPage'))
 const ArtistProfilePage = lazy(() => import('./pages/ArtistProfilePage'))
 const GalleryUploadPage = lazy(() => import('./pages/GalleryUploadPage'))
+const QuoteRequestPage  = lazy(() => import('./pages/QuoteRequestPage'))
 
 // ── Retired routes (August 2026) ─────────────────────────────────────────────
 // The site was narrowed to the shop plus 1:1 consultations. These pages still
@@ -75,9 +76,10 @@ const GalleryUploadPage = lazy(() => import('./pages/GalleryUploadPage'))
 //
 // /artists and /artists/:uid were un-retired in the artist-membership work —
 // a paying member gets a public profile, so the directory is live again.
+// /cd-printing (QuoteRequestPage, the CD print quote builder) was un-retired
+// Sept 2026; its old URL /order/cd redirects to it.
 //   /mystery        MysteryPage        mystery record / crate builder
 //   /preorder/:slug PreorderPage       removed: Enigma now sells as a product
-//   /order/cd       QuoteRequestPage   CD duplication quote builder
 //   /wishlist/:uid  WishlistPage       public wishlist sharing
 
 function SetupGate() {
@@ -196,8 +198,9 @@ export default function App() {
           <Route path="/cart"        element={<CartPage />}    />
           <Route path="/about"       element={<AboutPage />}   />
           <Route path="/consult"     element={<ConsultPage />} />
+          <Route path="/cd-printing" element={<QuoteRequestPage />} />
           <Route path="/artists"           element={<ArtistsPage />}       />
-          <Route path="/artists/:uid"      element={<ArtistProfilePage />} />
+          <Route path="/artists/:slug"     element={<ArtistProfilePage />} />
           <Route path="/gallery-upload"    element={<GalleryUploadPage />} />
           <Route path="/admin"       element={<AdminPage />}   />
           <Route path="/account"     element={<AccountPage />} />
@@ -215,7 +218,7 @@ export default function App() {
           <Route path="/magazine/*" element={<Navigate to="/home" replace />} />
           <Route path="/mystery"   element={<Navigate to="/shop" replace />} />
           <Route path="/submit-art" element={<Navigate to="/shop" replace />} />
-          <Route path="/order/cd"  element={<Navigate to="/shop" replace />} />
+          <Route path="/order/cd"  element={<Navigate to="/cd-printing" replace />} />
 
           <Route
             path="*"

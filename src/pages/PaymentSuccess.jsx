@@ -47,11 +47,13 @@ export default function PaymentSuccess() {
   const isListing  = type === 'listing'
   const isDeposit  = type === 'deposit'
   const isPreorder = type === 'preorder'
+  const isCd       = type === 'cd_order'
 
   const heading = isBlog     ? 'Article submitted.'
                 : isListing  ? 'Listing fee paid.'
                 : isDeposit  ? 'Deposit received.'
                 : isPreorder ? 'Preorder confirmed.'
+                : isCd       ? 'CD order paid.'
                 : 'Order confirmed.'
 
   const body = isBlog
@@ -60,6 +62,8 @@ export default function PaymentSuccess() {
     ? "Your submission is now in the review queue. You'll hear back within 48 hours."
     : isDeposit
     ? "Your deposit is confirmed. We'll be in touch with next steps and your balance due before shipping."
+    : isCd
+    ? "Your files are in the print queue. A receipt is on its way to your email within a few minutes, and we'll email you again when your CDs are ready."
     : isPreorder
     ? "You're on the list. A confirmation email is on its way. You'll hear from us the day Enigma drops."
     : "Your order is confirmed. You'll receive an email with details and shipping updates."
@@ -87,8 +91,8 @@ export default function PaymentSuccess() {
           </p>
         )}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(isBlog || isPreorder ? '/home' : '/account')} className="btn-outline">
-            {isBlog || isPreorder ? 'Back to Home' : isListing ? 'View Submissions' : 'View Orders'}
+          <button onClick={() => navigate(isBlog || isPreorder || isCd ? '/home' : '/account')} className="btn-outline">
+            {isBlog || isPreorder || isCd ? 'Back to Home' : isListing ? 'View Submissions' : 'View Orders'}
           </button>
           {!isPreorder && (
             <button onClick={() => navigate('/shop')} className="btn-ghost">

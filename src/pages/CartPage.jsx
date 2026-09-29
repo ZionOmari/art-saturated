@@ -10,6 +10,7 @@ import Spinner from '../components/Spinner'
 
 // Fallback shipping tiers (oz → price)
 const DEFAULT_TIERS = [4.99, 7.99, 12.99, 18.99]
+const FLAT_SHIPPING = 5  // US, per order
 const DEFAULT_TAX   = 0.07
 
 export default function CartPage() {
@@ -84,12 +85,12 @@ export default function CartPage() {
   const TAX_RATE = storeConfig?.taxRate ?? DEFAULT_TAX
   const bundleDeal = storeConfig?.bundleDeal
 
-  function calcShipping(oz) {
-    if (oz <= 0)  return 0
-    if (oz <= 8)  return tiers[0]
-    if (oz <= 16) return tiers[1]
-    if (oz <= 48) return tiers[2]
-    return tiers[3]
+  // Flat US shipping — an estimate; the owner contacts the buyer if an order
+  // costs a lot more to ship. The server charges the same flat amount
+  // (US_FLAT_SHIPPING_CENTS in functions/index.js), whatever this sends.
+  // `tiers` (weight-based) is kept in store config but no longer used.
+  function calcShipping() {
+    return FLAT_SHIPPING
   }
 
   const physMediaQty = useMemo(
@@ -266,12 +267,15 @@ export default function CartPage() {
               </div>
 
               <p className="font-mono text-[11px] text-warm-gray mt-2">
-                {method === 'ship' && totalWeightOz > 0 &&
-                  `~${totalWeightOz.toFixed(1)} oz total · est. shipping $${shippingCost.toFixed(2)}`
-                }
-                {method === 'ship' && totalWeightOz === 0 &&
-                  'Free shipping on this order'
-                }
+                {method === 'ship' && <>
+                  Flat ${FLAT_SHIPPING.toFixed(2)} shipping · US only · Outside the US?{' '}
+                  <button type="button" className="underline text-earth"
+                    onClick={() => window.dispatchEvent(new CustomEvent('as:inquiry', {
+                      detail: { message: `Shipping inquiry (shop cart): I'm outside the US. Country: \n\nItems: ${cart.map(i => `${i.name} × ${i.qty}`).join(', ')}` },
+                    }))}>
+                    Message us
+                  </button>
+                </>}
                 {method === 'pickup' &&
                   'Free local pickup · 3945 Parnell Ave, Fort Wayne IN · We\'ll contact you when ready'
                 }

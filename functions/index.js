@@ -19,6 +19,10 @@ const FROM_EMAIL  = process.env.GMAIL_USER || OWNER_EMAIL
 const STORE_NAME = 'Art Saturated'
 const CLIENT_URL = 'https://artsaturated.com'
 
+// Shop cart shipping: one flat US rate per order (matches CartPage.jsx).
+// CD printing has its own in functions/cdPricing.mjs.
+const US_FLAT_SHIPPING_CENTS = 500
+
 // Artist membership. Amount lives here so checkout, emails and the UI copy
 // can't drift apart; change it in one place.
 const ARTIST_PLAN = {
@@ -101,6 +105,118 @@ exports.onCheckoutRequestCreated = functions
       console.log('Stripe key present:', !!key, 'type:', type)
 
       const s = stripe()
+
+      // ── CD printing order ───────────────────────────────────────────────────
+      // Priced here from the saved order config — never from the client. The
+      // same request type covers the first payment and, on deposit orders, the
+      // balance; which one is decided by the order's paymentStatus.
+      if (type === 'cd_order') {
+        const orderRef  = admin.firestore().doc(`quoteRequests/${data.orderId || '_'}`)
+        const orderSnap = await orderRef.get()
+        if (!orderSnap.exists || orderSnap.data().uid !== data.uid) {
+          await safeUpdate({ status: 'error', error: 'Order not found.' })
+          return
+        }
+        const order = orderSnap.data()
+        const { priceCdOrder, reorderWindow, PACKAGING_LABELS } = await import('./cdPricing.mjs')
+
+        // A reorder reprints a paid project: it must belong to the same
+        // customer, be inside the retention window, and it takes the source's
+        // files, options and per-disc rate — whatever the client wrote.
+        let lockedFields = {}
+        let p
+        if (order.reorderOf) {
+          const srcSnap = await admin.firestore().doc(`quoteRequests/${order.reorderOf}`).get()
+          const src = srcSnap.exists ? srcSnap.data() : null
+          const paidAtMs = src?.paidAt?.toMillis ? src.paidAt.toMillis() : null
+          if (!src || src.uid !== data.uid || !['paid', 'deposit_paid'].includes(src.paymentStatus)) {
+            await safeUpdate({ status: 'error', error: 'The original order could not be found.' })
+            return
+          }
+          if (order.paymentStatus === 'unpaid' && !reorderWindow(paidAtMs).open) {
+            await safeUpdate({ status: 'error', error: 'This project is past its 6-month reorder window. Please start a new order.' })
+            return
+          }
+          const rate = src.perDiscCents || priceCdOrder(src).perDisc
+          p = priceCdOrder({ ...src, qty: order.qty, delivery: order.delivery, rush: order.rush }, { reorderRate: rate })
+          lockedFields = {
+            ...p.config,
+            artistName: src.artistName, albumTitle: src.albumTitle,
+            trackList: src.trackList || [], audioFiles: src.audioFiles || [], artwork: src.artwork || {},
+            projectId: src.projectId || order.reorderOf,
+          }
+        } else {
+          p = priceCdOrder(order)
+        }
+
+        let stage, amount
+        if (order.paymentStatus === 'unpaid') {
+          stage = 'initial'; amount = p.dueNow
+        } else if (order.paymentStatus === 'deposit_paid') {
+          stage = 'balance'; amount = (order.totalCents || p.total) - (order.amountPaidCents || 0)
+        } else {
+          await safeUpdate({ status: 'error', error: 'This order is already paid in full.' })
+          return
+        }
+        if (amount <= 0 || order.status === 'cancelled') {
+          await safeUpdate({ status: 'error', error: 'Nothing is due on this order.' })
+          return
+        }
+
+        const what = `${p.config.qty} × ${PACKAGING_LABELS[p.config.packaging]}` +
+          (order.albumTitle ? ` — ${order.albumTitle}` : '')
+
+        // Paid in full: itemise. Deposit or balance: one line, so the receipt
+        // shows exactly what was charged.
+        const lineItems = stage === 'initial' && !p.isDeposit
+          ? [
+              { price_data: { currency: 'usd', unit_amount: p.perDisc, product_data: { name: `CD printing: ${what}` } }, quantity: p.config.qty },
+              ...(p.setupFee > 0 ? [{ price_data: { currency: 'usd', unit_amount: p.setupFee, product_data: { name: 'Setup fee' } }, quantity: 1 }] : []),
+              ...(p.rushFee > 0 ? [{ price_data: { currency: 'usd', unit_amount: p.rushFee, product_data: { name: 'Rush turnaround' } }, quantity: 1 }] : []),
+              ...(p.tax > 0 ? [{ price_data: { currency: 'usd', unit_amount: p.tax, product_data: { name: 'Indiana sales tax' } }, quantity: 1 }] : []),
+              ...(p.shipping > 0 ? [{ price_data: { currency: 'usd', unit_amount: p.shipping, product_data: { name: 'Shipping' } }, quantity: 1 }] : []),
+            ]
+          : [{
+              price_data: {
+                currency: 'usd',
+                unit_amount: amount,
+                product_data: {
+                  name: stage === 'initial' ? `CD printing deposit: ${what}` : `CD printing balance: ${what}`,
+                  description: `Order total ${'$' + (p.total / 100).toFixed(2)}`,
+                },
+              },
+              quantity: 1,
+            }]
+
+        const sessionParams = {
+          payment_method_types: ['card'],
+          mode: 'payment',
+          line_items: lineItems,
+          customer_email: order.email || data.customerEmail || undefined,
+          success_url: `${CLIENT_URL}/payment-success?type=cd_order&orderId=${orderSnap.id}`,
+          cancel_url:  `${CLIENT_URL}/cd-printing?pay=${orderSnap.id}`,
+          metadata: { type: 'cd_order', orderId: orderSnap.id, stage, uid: data.uid },
+        }
+        if (stage === 'initial' && p.config.delivery === 'ship') {
+          sessionParams.shipping_address_collection = { allowed_countries: ['US'] }
+        }
+
+        const session = await s.checkout.sessions.create(sessionParams)
+        // Freeze the server's price on the order. perDiscCents is the rate a
+        // future reorder of this project inherits.
+        await orderRef.update(stage === 'initial'
+          ? {
+              ...lockedFields,
+              totalCents:   p.total,
+              dueNowCents:  p.dueNow,
+              perDiscCents: p.perDisc,
+              isDeposit:    p.isDeposit,
+              lastCheckoutSessionId: session.id,
+            }
+          : { lastCheckoutSessionId: session.id })
+        await safeUpdate({ status: 'ready', url: session.url })
+        return
+      }
 
       // ── Artist upload subscription ($7.99/month) ────────────────────────────
       // Uses inline price_data rather than a pre-made Stripe Price so the amount
@@ -334,11 +450,12 @@ exports.onCheckoutRequestCreated = functions
         quantity: Number(item.qty) || 1,
       }))
 
-      if (shippingMethod !== 'pickup' && Number(shippingCost) > 0) {
+      // Flat US shipping, set here rather than taken from the client.
+      if (shippingMethod !== 'pickup') {
         lineItems.push({
           price_data: {
             currency: 'usd',
-            unit_amount: Math.round(Number(shippingCost) * 100),
+            unit_amount: US_FLAT_SHIPPING_CENTS,
             product_data: { name: 'Shipping & Handling' },
           },
           quantity: 1,
@@ -454,7 +571,7 @@ async function handlePaidSession(session) {
     // Stripe Payment Links (and dashboard-created invoices) arrive with no
     // metadata.type, so every branch below skips them and the sale leaves no
     // trace on the site. Catch that case explicitly rather than silently 200-ing.
-    const KNOWN_TYPES = ['order', 'deposit', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription']
+    const KNOWN_TYPES = ['order', 'deposit', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription', 'cd_order']
 
     // The magazine article fee still goes through a Stripe Payment Link, which
     // carries no metadata — only client_reference_id. Infer the type so it isn't
@@ -516,6 +633,52 @@ async function handlePaidSession(session) {
         ].join('\n'),
       ).catch(e => console.error('Orphan payment alert failed:', e.message))
 
+      return
+    }
+
+    // ── CD printing order paid (first payment or balance) ───────────────────
+    if (effectiveType === 'cd_order' && meta.orderId) {
+      const cdRef  = db.doc(`quoteRequests/${meta.orderId}`)
+      const paid   = session.amount_total || 0
+      const email  = session.customer_details?.email || session.customer_email || ''
+
+      const result = await db.runTransaction(async (txn) => {
+        const snap = await txn.get(cdRef)
+        if (!snap.exists) return null
+        const o = snap.data()
+        const amountPaidCents = (o.amountPaidCents || 0) + paid
+        const total = o.totalCents || amountPaidCents
+        const fullyPaid = amountPaidCents >= total
+        const update = {
+          amountPaidCents,
+          paymentStatus: fullyPaid ? 'paid' : 'deposit_paid',
+          stripeSessionIds: FieldValue.arrayUnion(session.id),
+        }
+        if (meta.stage !== 'balance') {
+          update.status = 'paid'
+          update.paidAt = FieldValue.serverTimestamp()
+          const addr = session.shipping_details?.address || session.collected_information?.shipping_details?.address
+          if (addr) update.shippingAddress = { name: session.shipping_details?.name || o.name || '', ...addr }
+        } else {
+          update.balancePaidAt = FieldValue.serverTimestamp()
+        }
+        txn.update(cdRef, update)
+        return { o: { ...o, ...update }, fullyPaid, amountPaidCents, total }
+      })
+
+      if (!result) {
+        await db.collection('orphanedPayments').doc(session.id).set({
+          cdOrderId: meta.orderId, email, amount: paid / 100,
+          stripeSessionId: session.id, createdAt: FieldValue.serverTimestamp(),
+        }).catch(e => console.error('orphanedPayments write failed:', e.message))
+        await sendEmail(OWNER_EMAIL, `⚠ Paid CD order with no record — ${session.id}`,
+          `A CD printing payment of $${(paid / 100).toFixed(2)} from ${email || '—'} succeeded, but order ${meta.orderId} is missing. Refund or rebuild it manually.`,
+        ).catch(e => console.error('CD orphan alert failed:', e.message))
+        return
+      }
+
+      await notifyCdPaid(meta.orderId, result.o, { stage: meta.stage, paid, ...result })
+        .catch(e => console.error('notifyCdPaid failed:', e.message))
       return
     }
 
@@ -1406,125 +1569,157 @@ async function shippoFetch(path, method, body) {
   return res.json()
 }
 
-// ── Shippo: Get shipping rates for an order ───────────────────────────────────
-exports.getShippingRates = functions
-  .runWith({ timeoutSeconds: 120 })
-  .https.onCall(async (data, context) => {
-  // Admin-only: reads order PII and hits the paid Shippo API.
-  if (context.auth?.token?.email !== OWNER_EMAIL) {
-    throw new functions.https.HttpsError('permission-denied', 'Admins only.')
-  }
-
-  const { orderId } = data
-  if (!orderId) throw new functions.https.HttpsError('invalid-argument', 'orderId required.')
-
-  const orderSnap = await admin.firestore().doc(`orders/${orderId}`).get()
-  if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'Order not found.')
-
-  const order = orderSnap.data()
-  if (!order.shippingAddress) {
-    throw new functions.https.HttpsError('failed-precondition', 'No shipping address on this order.')
-  }
-
-  // Total weight in lbs (min 0.1 lb)
-  const weightOz = (order.items || []).reduce((s, i) => s + (Number(i.weightOz) || 2) * (Number(i.qty) || 1), 0)
-  const weightLb = Math.max(weightOz / 16, 0.1).toFixed(3)
-
-  // Allow from-address override via storeConfig
+// ── Shippo: Firestore request/response (callables return 403 here) ──────────
+// A client writes shippingRequests/{id} with an `action`; this trigger does the
+// Shippo work and writes { status: 'ready', result } or { status: 'error' }.
+//
+//   order_rates  admin   shop orderId → rates for that order
+//   buy_label    admin   { kind: 'order', orderId, rateObjectId } buys the picked rate
+//                        { kind: 'cd', orderId } re-rates and buys the service the
+//                        customer paid for, then marks the CD order shipped
+async function shipFromAddress() {
   const configSnap = await admin.firestore().doc('settings/storeConfig').get()
-  const fromAddr   = (configSnap.exists && configSnap.data().shipFromAddress) || DEFAULT_SHIP_FROM
+  return (configSnap.exists && configSnap.data().shipFromAddress) || DEFAULT_SHIP_FROM
+}
 
-  try {
-    const shipment = await shippoFetch('/shipments/', 'POST', {
-      address_from: fromAddr,
-      address_to: {
-        name:    order.shippingAddress.name,
-        street1: order.shippingAddress.street1,
-        street2: order.shippingAddress.street2 || '',
-        city:    order.shippingAddress.city,
-        state:   order.shippingAddress.state,
-        zip:     order.shippingAddress.zip,
-        country: order.shippingAddress.country || 'US',
-        phone:   order.shippingAddress.phone   || '',
-        email:   order.email || '',
-      },
-      parcels: [{
-        length:        '12',
-        width:         '9',
-        height:        '6',
-        distance_unit: 'in',
-        weight:        weightLb,
-        mass_unit:     'lb',
-      }],
-      async: false,
-    })
+function toShippoAddress(a = {}, email = '') {
+  return {
+    name:    a.name || '',
+    street1: a.street1 || a.line1 || '',
+    street2: a.street2 || a.line2 || '',
+    city:    a.city || '',
+    state:   a.state || '',
+    zip:     a.zip || a.postal_code || '',
+    country: a.country || 'US',
+    phone:   a.phone || '',
+    email:   email || a.email || '',
+  }
+}
 
-    const rates = (shipment.rates || []).map(r => ({
-      objectId: r.object_id,
-      carrier:  r.provider,
-      service:  r.servicelevel?.name || '',
-      days:     r.estimated_days     || null,
-      amount:   r.amount,
-      currency: r.currency,
+function simplifyRates(shipment) {
+  return (shipment.rates || [])
+    .map(r => ({
+      objectId:  r.object_id,
+      carrier:   r.provider,
+      service:   r.servicelevel?.name || '',
+      token:     r.servicelevel?.token || '',
+      days:      r.estimated_days || null,
+      amount:    r.amount,
+      amountCents: Math.round(parseFloat(r.amount) * 100),
+      currency:  r.currency,
     }))
+    .filter(r => r.currency === 'USD' && r.amountCents > 0)
+    .sort((a, b) => a.amountCents - b.amountCents)
+}
 
-    // Sort by price ascending
-    rates.sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount))
-    return rates
-  } catch (err) {
-    console.error('getShippingRates error:', err.message)
-    throw new functions.https.HttpsError('internal', err.message)
+async function createShipment(addressTo, parcels) {
+  return shippoFetch('/shipments/', 'POST', {
+    address_from: await shipFromAddress(),
+    address_to:   addressTo,
+    parcels,
+    async: false,
+  })
+}
+
+async function buyRate(rateObjectId) {
+  const t = await shippoFetch('/transactions/', 'POST', { rate: rateObjectId, label_file_type: 'PDF', async: false })
+  if (t.status !== 'SUCCESS') {
+    throw new Error((t.messages || []).map(m => m.text).join('; ') || 'Label purchase failed.')
   }
-})
+  return t
+}
 
-// ── Shippo: Purchase a label for an order ────────────────────────────────────
-exports.purchaseShippingLabel = functions
-  .runWith({ timeoutSeconds: 120 })
-  .https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.')
-
-  // Admin-only: this BUYS a real shipping label (spends money) and mutates any order.
-  if (context.auth?.token?.email !== OWNER_EMAIL) {
-    throw new functions.https.HttpsError('permission-denied', 'Admins only.')
-  }
-
-  const { orderId, rateObjectId } = data
-  if (!orderId || !rateObjectId) {
-    throw new functions.https.HttpsError('invalid-argument', 'orderId and rateObjectId required.')
-  }
-
+async function shopOrderRates(orderId) {
   const orderSnap = await admin.firestore().doc(`orders/${orderId}`).get()
-  if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'Order not found.')
+  if (!orderSnap.exists) throw new Error('Order not found.')
+  const order = orderSnap.data()
+  if (!order.shippingAddress) throw new Error('No shipping address on this order.')
 
-  try {
-    const transaction = await shippoFetch('/transactions/', 'POST', {
-      rate:            rateObjectId,
-      label_file_type: 'PDF',
-      async:           false,
-    })
+  const weightOz = (order.items || []).reduce((s, i) => s + (Number(i.weightOz) || 2) * (Number(i.qty) || 1), 0)
+  const shipment = await createShipment(toShippoAddress(order.shippingAddress, order.email), [{
+    length: '12', width: '9', height: '6', distance_unit: 'in',
+    weight: Math.max(weightOz / 16, 0.1).toFixed(3), mass_unit: 'lb',
+  }])
+  return simplifyRates(shipment)
+}
 
-    if (transaction.status !== 'SUCCESS') {
-      const msg = (transaction.messages || []).map(m => m.text).join('; ') || 'Label purchase failed.'
-      throw new Error(msg)
-    }
+async function buyShopLabel(orderId, rateObjectId) {
+  if (!rateObjectId) throw new Error('Pick a rate first.')
+  const t = await buyRate(rateObjectId)
+  await admin.firestore().doc(`orders/${orderId}`).update({
+    status:         'shipped',
+    trackingNumber: t.tracking_number || '',
+    labelUrl:       t.label_url || '',
+    carrier:        t.provider || '',
+    shippedAt:      FieldValue.serverTimestamp(),
+  })
+  return { trackingNumber: t.tracking_number, labelUrl: t.label_url }
+}
 
-    await admin.firestore().doc(`orders/${orderId}`).update({
-      status:         'shipped',
-      trackingNumber: transaction.tracking_number || '',
-      labelUrl:       transaction.label_url        || '',
-      carrier:        transaction.provider          || '',
-      shippedAt:      FieldValue.serverTimestamp(),
-    })
+// Buys the label for a paid CD order. Customers pay a flat rate, so this
+// takes the cheapest live rate (or the customer's chosen service, if an
+// order has one) and flags it when postage runs well over what was charged.
+async function buyCdLabel(orderId) {
+  const { cdParcels } = await import('./cdPricing.mjs')
+  const ref = admin.firestore().doc(`quoteRequests/${orderId}`)
+  const snap = await ref.get()
+  if (!snap.exists) throw new Error('CD order not found.')
+  const o = snap.data()
+  if (o.delivery !== 'ship' || !o.shippingAddress) throw new Error('This order is not being shipped.')
+  if (o.paymentStatus !== 'paid') throw new Error('The balance on this order has not been paid yet.')
+  if (o.labelUrl) throw new Error('A label was already bought for this order.')
 
-    return {
-      trackingNumber: transaction.tracking_number,
-      labelUrl:       transaction.label_url,
-    }
-  } catch (err) {
-    console.error('purchaseShippingLabel error:', err.message)
-    throw new functions.https.HttpsError('internal', err.message)
+  const shipment = await createShipment(toShippoAddress(o.shippingAddress, o.email), cdParcels(o))
+  const rates = simplifyRates(shipment)
+  const chosen = o.shippingService
+  const rate = chosen
+    ? rates.find(r => r.carrier === chosen.carrier && r.token === chosen.token)
+    : rates[0]
+  if (!rate) throw new Error('No carrier rate is available for this address. Buy the label in Shippo directly.')
+
+  const t = await buyRate(rate.objectId)
+  await ref.update({
+    status:         'shipped',
+    trackingNumber: t.tracking_number || '',
+    trackingUrl:    t.tracking_url_provider || '',
+    labelUrl:       t.label_url || '',
+    carrier:        t.provider || rate.carrier,
+    labelCostCents: rate.amountCents,
+    shippedAt:      FieldValue.serverTimestamp(),
+  })
+  return {
+    trackingNumber: t.tracking_number,
+    labelUrl: t.label_url,
+    overCharged: rate.amountCents > (o.shippingCents || 500) * 1.25,
+    labelCostCents: rate.amountCents,
   }
-})
+}
+
+exports.onShippingRequestCreated = functions
+  .runWith({ timeoutSeconds: 120 })
+  .firestore.document('shippingRequests/{id}')
+  .onCreate(async (snap) => {
+    const data = snap.data() || {}
+    const reply = patch => snap.ref.update(patch).catch(e => console.error('shippingRequests reply failed:', e.message))
+    try {
+      let result
+      {
+        // Everything else spends money or reads other people's orders.
+        let email = null
+        try { email = (await admin.auth().getUser(data.uid)).email } catch {}
+        if (email !== OWNER_EMAIL) throw new Error('Admins only.')
+
+        if (data.action === 'order_rates') result = { rates: await shopOrderRates(data.orderId) }
+        else if (data.action === 'buy_label' && data.kind === 'cd') result = await buyCdLabel(data.orderId)
+        else if (data.action === 'buy_label') result = await buyShopLabel(data.orderId, data.rateObjectId)
+        else throw new Error('Unknown shipping request.')
+      }
+      await reply({ status: 'ready', result })
+    } catch (err) {
+      console.error('onShippingRequestCreated:', data.action, err.message)
+      await reply({ status: 'error', error: err.message || 'Shipping request failed.' })
+    }
+  })
 
 // ── Gemini via @google/genai (Vertex, global endpoint) ───────────────────────
 // One shared call site. The new SDK properly supports the `global` endpoint and
@@ -2166,6 +2361,116 @@ exports.notifyFeedback = functions.firestore.document('feedback/{id}').onCreate(
       `Review: ${CLIENT_URL}/admin?tab=feedback`,
     ]))
   } catch (e) { console.error('notifyFeedback:', e.message) }
+  return null
+})
+
+// ── CD printing emails ────────────────────────────────────────────────────────
+// Orders are made to order and paid upfront, so every step the customer needs
+// to know about is emailed automatically — no manual back-and-forth.
+const SHOP_ADDRESS = '3945 Parnell Ave, Fort Wayne, IN'
+const cents = n => `$${((n || 0) / 100).toFixed(2)}`
+const cdRef = (id) => `#${String(id).slice(-6).toUpperCase()}`
+const cdPayLink = (id) => `${CLIENT_URL}/cd-printing?pay=${id}`
+
+function cdSummary(o) {
+  const pack = { sleeve: 'Disc only (sleeve)', slim: 'Slim case', jewel: 'Jewel case' }[o.packaging] || o.packaging
+  return [
+    `  Release:   ${o.artistName || '—'} — ${o.albumTitle || '—'}`,
+    `  Discs:     ${o.qty} × ${pack}`,
+    o.packaging !== 'sleeve' ? `  Cover:     ${o.panelCount}-panel, ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}${o.gloss ? ', gloss' : ''}` : '',
+    `  Tracks:    ${(o.trackList || []).length}`,
+    `  Delivery:  ${o.delivery === 'ship' ? `Shipping${o.shippingService?.service ? ` — ${o.shippingService.carrier} ${o.shippingService.service}` : ''}` : `Pickup at ${SHOP_ADDRESS}`}`,
+    `  Turnaround: ${o.rush ? 'RUSH — under 7 days' : 'Standard, 7–14 days'}`,
+  ].filter(Boolean)
+}
+
+// Called from handlePaidSession after a CD payment settles.
+async function notifyCdPaid(id, o, { stage, paid, fullyPaid, amountPaidCents, total }) {
+  initSG()
+  const balance = total - amountPaidCents
+
+  if (stage === 'balance') {
+    await sendEmail(o.email, `Paid in full — CD order ${cdRef(id)}`, fmtEmail(o.name, [
+      `We received your balance of ${cents(paid)}. Your order is paid in full.`,
+      '',
+      o.delivery === 'ship'
+        ? "Your CDs will ship within 2 business days. You'll get a tracking email."
+        : `Your CDs are ready for pickup at ${SHOP_ADDRESS}.`,
+    ]))
+  } else {
+    await sendEmail(o.email, `CD order ${cdRef(id)} confirmed`, fmtEmail(o.name, [
+      `Thanks — we received ${cents(paid)} and your order is in the print queue.`,
+      '',
+      ...cdSummary(o),
+      `  Total:     ${cents(total)}`,
+      fullyPaid ? '  Paid in full.' : `  Paid today: ${cents(paid)} · Balance ${cents(balance)} due when your CDs are ready`,
+      '',
+      `Your CDs will be ready in ${o.rush ? 'under 7 days (rush)' : '7–14 days'}. We print your files exactly as submitted,`,
+      `so there's nothing else you need to do. We'll email you when they're ${o.delivery === 'ship' ? 'on the way' : 'ready for pickup'}.`,
+      '',
+      `Need more later? We keep your files for 6 months. Reorders in that time have no setup fee and keep your ${cents(o.perDiscCents)}/disc rate:`,
+      `${CLIENT_URL}/cd-printing?reorder=${id}`,
+      '',
+      `Terms of service: ${CLIENT_URL}/cd-printing#terms`,
+    ]))
+  }
+
+  await sendEmail(OWNER_EMAIL,
+    stage === 'balance' ? `CD balance paid — ${cdRef(id)}`
+      : `${o.rush ? '⚡ RUSH ' : ''}${o.reorderOf ? `CD REORDER of ${cdRef(o.reorderOf)}` : 'New paid CD order'} — ${cdRef(id)} (${o.qty} discs)`,
+    fmtEmail('Zion', [
+      stage === 'balance'
+        ? `${o.name} paid the ${cents(paid)} balance. The order is paid in full.`
+        : `${o.name} (${o.email}) paid ${cents(paid)}${fullyPaid ? ' — paid in full' : ` deposit, ${cents(balance)} balance due`}.`,
+      '',
+      ...cdSummary(o),
+      '',
+      `Files and status: ${CLIENT_URL}/admin?tab=cd-orders`,
+    ]))
+}
+
+// Admin moves an order along → the customer hears about it. When a deposit
+// order is marked ready, the email carries the link to pay the balance.
+exports.onQuoteRequestUpdated = functions.firestore.document('quoteRequests/{id}').onUpdate(async (change, ctx) => {
+  const before = change.before.data() || {}
+  const o      = change.after.data() || {}
+  if (before.status === o.status || !o.email || !o.uid) return null  // legacy quote requests have no uid
+  try {
+    initSG()
+    const id = ctx.params.id
+    const balance = (o.totalCents || 0) - (o.amountPaidCents || 0)
+    const owesBalance = o.paymentStatus === 'deposit_paid' && balance > 0
+
+    if (o.status === 'ready') {
+      const lines = owesBalance
+        ? [
+            `Your ${o.qty} CDs are done.`,
+            '',
+            `Your remaining balance is ${cents(balance)}. Pay it here:`,
+            cdPayLink(id),
+            '',
+            o.delivery === 'ship'
+              ? 'They ship as soon as the balance is paid.'
+              : `Once it's paid, pick them up at ${SHOP_ADDRESS}.`,
+          ]
+        : [
+            `Your ${o.qty} CDs are done.`,
+            '',
+            o.delivery === 'ship'
+              ? "They're being packed now. You'll get a tracking email when they ship."
+              : `Pick them up any time at ${SHOP_ADDRESS}.`,
+          ]
+      await sendEmail(o.email, `Your CDs are ready — ${cdRef(id)}`, fmtEmail(o.name, lines))
+    }
+
+    if (o.status === 'shipped') {
+      await sendEmail(o.email, `Your CDs shipped — ${cdRef(id)}`, fmtEmail(o.name, [
+        `Your ${o.qty} CDs are on the way${o.shippingService?.service ? ` via ${o.shippingService.carrier} ${o.shippingService.service}` : ''}.`,
+        o.trackingNumber ? `Tracking: ${o.trackingNumber}` : '',
+        o.trackingUrl ? o.trackingUrl : '',
+      ].filter(Boolean)))
+    }
+  } catch (e) { console.error('onQuoteRequestUpdated:', e.message) }
   return null
 })
 

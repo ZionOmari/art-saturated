@@ -53,6 +53,16 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
       allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
     }
+    // Shippo requests (onShippingRequestCreated) — rates and label purchases,
+    // admin-only. The reply (status/result) is written by the function, never
+    // by a client.
+    match /shippingRequests/{docId} {
+      allow create: if isAdmin()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && !request.resource.data.keys().hasAny(['result', 'error']);
+      allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
+    }
     // Billing requests (cancel / resume / manage membership) — same pattern.
     // The function reads the subscription id from the user's own document, so a
     // forged request body cannot reach someone else's subscription.
@@ -314,10 +324,17 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
-    // CD / vinyl quote requests (QuoteRequestPage.jsx) — anyone can submit; admin reads/manages
+    // CD printing orders (QuoteRequestPage.jsx). A signed-in customer creates
+    // their own order, unpaid; only the payment function (Admin SDK) marks it
+    // paid, and only the admin moves it through production.
     match /quoteRequests/{qrId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending_payment'
+                    && request.resource.data.paymentStatus == 'unpaid'
+                    && !request.resource.data.keys().hasAny(['amountPaidCents', 'totalCents', 'paidAt']);
+      allow read: if isAdmin() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
     }
 
     // AI request queue — admin writes a request, a Cloud Function fulfills it.
@@ -347,6 +364,31 @@ service cloud.firestore {
     // Workshop 1:1 bookings — written by Stripe webhook (Admin SDK); admin reads
     match /workshopBookings/{bookingId} {
       allow read, update, delete: if isAdmin();
+    }
+
+    // Artist slug uniqueness index — document ID is the slug string, value is { uid }.
+    // An artist claims a slug by creating a doc; only the owner or admin can delete it.
+    // Public read so the profile page can resolve slug → uid without auth.
+    match /artistSlugs/{slug} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null
+        && (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if false;
+    }
+
+    // Artist blog posts — artist CRUDs their own; public reads published posts.
+    match /blogPosts/{postId} {
+      allow read: if resource.data.published == true
+        || (request.auth != null && resource.data.artistUid == request.auth.uid)
+        || isAdmin();
+      allow create: if request.auth != null
+        && request.resource.data.artistUid == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.artistUid == request.auth.uid;
+      allow delete: if request.auth != null
+        && (resource.data.artistUid == request.auth.uid || isAdmin());
     }
 
     match /{document=**} {
