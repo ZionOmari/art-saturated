@@ -28,7 +28,6 @@ export const CD_PRICING = {
     standard:  75,                // per print
     cardstock: 125,               // per print
   },
-  gloss: 25,                      // per cover (per disc)
 
   removeCredit: 25,               // drop the "Printed at Art Saturated" line
 
@@ -66,6 +65,36 @@ export const CD_PRICING = {
   retentionDays: 183,
 }
 
+// ── Promo codes ──────────────────────────────────────────────────────────────
+// Stored as SHA-256 hashes of the upper-cased code, so the code itself can't be
+// read out of the page source. To add or change a code, hash it with:
+//   node -e "console.log(require('crypto').createHash('sha256').update('CODE').digest('hex'))"
+// A promo is all-in: perDiscAllIn covers the disc, sleeve, setup and sales tax.
+// Only shipping is added. It can't be combined with rush or a reorder.
+export const CD_PROMOS = [
+  {
+    id:           'testpress',
+    hash:         '38d9d48cf5aa89b79af4b841f19279dd1be3a9ea31f1b30bc2e02105cb318411',  // TESTPRESS
+    label:        'Test press',
+    packaging:    'sleeve',
+    minQty:       25,
+    maxQty:       50,
+    perDiscAllIn: 200,
+  },
+]
+
+export const normalizePromoCode = code => String(code || '').trim().toUpperCase().replace(/\s+/g, '')
+export const findPromoByHash   = hash => CD_PROMOS.find(pr => pr.hash === hash) || null
+
+// Why a promo doesn't fit this config, or null when it does.
+export function promoProblem(promo, raw) {
+  if (!promo) return 'That code isn’t valid.'
+  const c = normalizeCdConfig(raw)
+  if (c.packaging !== promo.packaging) return `${promo.label} is for ${PACKAGING_LABELS[promo.packaging].toLowerCase()} orders.`
+  if (c.qty < promo.minQty || c.qty > promo.maxQty) return `${promo.label} is for ${promo.minQty}–${promo.maxQty} discs.`
+  return null
+}
+
 export const PACKAGING_LABELS = {
   sleeve: 'Disc only (paper sleeve)',
   slim:   'Slim case',
@@ -88,7 +117,6 @@ export function normalizeCdConfig(raw = {}) {
     packaging,
     panelCount:   printed ? (Number(raw.panelCount) === 2 ? 2 : 4) : 0,
     stock:        printed && raw.stock === 'cardstock' ? 'cardstock' : 'standard',
-    gloss:        printed && !!raw.gloss,
     removeCredit: printed && !!raw.removeCredit,
     delivery:     'ship',   // online only — every order ships (no pickup)
     rush:         !!raw.rush,
@@ -99,17 +127,49 @@ export function normalizeCdConfig(raw = {}) {
 //
 // opts.reorderRate: the per-disc rate (cents) of the run being reordered. When
 // set, the setup fee is waived and the per-disc price is capped at that rate.
+// opts.promo: a promo from CD_PROMOS (already matched by code). If it fits the
+// config the order is priced all-in at the promo rate; otherwise it's ignored
+// and promoProblem says why.
 export function priceCdOrder(raw, opts = {}) {
   const c = normalizeCdConfig(raw)
   const P = CD_PRICING
   const printed = c.packaging !== 'sleeve'
+
+  if (opts.promo && !opts.reorderRate && !promoProblem(opts.promo, c)) {
+    const pr = opts.promo
+    const cfg = { ...c, rush: false }
+    const discsTotal = pr.perDiscAllIn * cfg.qty
+    const shipping = P.shippingFlat
+    const total = discsTotal + shipping
+    return {
+      config: cfg,
+      lines: [{ label: `${pr.label}: disc, burn, printed face & sleeve — setup and tax included`, each: pr.perDiscAllIn }],
+      perDiscBase: pr.perDiscAllIn,
+      discountPct: 0,
+      perDisc: pr.perDiscAllIn,
+      discsTotal,
+      setupFee: 0,
+      rushFee: 0,
+      isReorder: false,
+      promoId: pr.id,
+      promoLabel: pr.label,
+      subtotal: discsTotal,
+      tax: 0,
+      // Sales tax inside the all-in price, for the books.
+      taxIncluded: Math.round(discsTotal - discsTotal / (1 + P.taxRate)),
+      shipping,
+      total,
+      isDeposit: false,
+      dueNow: total,
+      balance: 0,
+    }
+  }
 
   const lines = []   // per-disc components, for display
   lines.push({ label: 'Disc, burn & printed face', each: P.disc })
   lines.push({ label: PACKAGING_LABELS[c.packaging], each: P.packaging[c.packaging] })
   if (printed) {
     lines.push({ label: `Front & back covers, ${STOCK_LABELS[c.stock].toLowerCase()}`, each: P.print[c.stock] * P.printsPerCover })
-    if (c.gloss)        lines.push({ label: 'Gloss finish', each: P.gloss })
     if (c.removeCredit) lines.push({ label: 'No "Printed at Art Saturated" credit', each: P.removeCredit })
   }
 

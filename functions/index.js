@@ -118,7 +118,7 @@ exports.onCheckoutRequestCreated = functions
           return
         }
         const order = orderSnap.data()
-        const { priceCdOrder, reorderWindow, PACKAGING_LABELS } = await import('./cdPricing.mjs')
+        const { priceCdOrder, reorderWindow, PACKAGING_LABELS, normalizePromoCode, findPromoByHash, promoProblem } = await import('./cdPricing.mjs')
 
         // A reorder reprints a paid project: it must belong to the same
         // customer, be inside the retention window, and it takes the source's
@@ -146,7 +146,18 @@ exports.onCheckoutRequestCreated = functions
             projectId: src.projectId || order.reorderOf,
           }
         } else {
-          p = priceCdOrder(order)
+          // Promo code: re-checked here — the page's price is only a preview.
+          let promo = null
+          if (order.promoCode) {
+            const hash = require('crypto').createHash('sha256').update(normalizePromoCode(order.promoCode)).digest('hex')
+            promo = findPromoByHash(hash)
+            const problem = promoProblem(promo, order)
+            if (problem && order.paymentStatus === 'unpaid') {
+              await safeUpdate({ status: 'error', error: problem })
+              return
+            }
+          }
+          p = priceCdOrder(order, { promo })
         }
 
         let stage, amount
@@ -164,7 +175,8 @@ exports.onCheckoutRequestCreated = functions
         }
 
         const what = `${p.config.qty} × ${PACKAGING_LABELS[p.config.packaging]}` +
-          (order.albumTitle ? ` — ${order.albumTitle}` : '')
+          (order.albumTitle ? ` — ${order.albumTitle}` : '') +
+          (p.promoLabel ? ` (${p.promoLabel} — setup & sales tax included)` : '')
 
         // Paid in full: itemise. Deposit or balance: one line, so the receipt
         // shows exactly what was charged.
@@ -210,6 +222,7 @@ exports.onCheckoutRequestCreated = functions
               totalCents:   p.total,
               dueNowCents:  p.dueNow,
               perDiscCents: p.perDisc,
+              ...(p.promoId ? { promoId: p.promoId, taxIncludedCents: p.taxIncluded } : {}),
               isDeposit:    p.isDeposit,
               lastCheckoutSessionId: session.id,
             }
@@ -2372,7 +2385,7 @@ function cdSummary(o) {
   return [
     `  Release:   ${o.artistName || '—'} — ${o.albumTitle || '—'}`,
     `  Discs:     ${o.qty} × ${pack}`,
-    o.packaging !== 'sleeve' ? `  Cover:     ${o.panelCount}-panel, ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}${o.gloss ? ', gloss' : ''}` : '',
+    o.packaging !== 'sleeve' ? `  Cover:     ${o.panelCount}-panel, ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}` : '',
     `  Tracks:    ${(o.trackList || []).length}`,
     `  Delivery:  Shipping${o.shippingService?.service ? ` — ${o.shippingService.carrier} ${o.shippingService.service}` : ''}`,
     `  Turnaround: ${o.rush ? 'RUSH — under 7 days' : 'Standard, 7–14 days'}`,

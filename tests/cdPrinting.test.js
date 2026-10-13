@@ -8,7 +8,8 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
-import { CD_PRICING, priceCdOrder, normalizeCdConfig, reorderWindow } from '../functions/cdPricing.mjs'
+import { createHash } from 'node:crypto'
+import { CD_PRICING, CD_PROMOS, priceCdOrder, normalizeCdConfig, reorderWindow, normalizePromoCode, findPromoByHash, promoProblem } from '../functions/cdPricing.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -29,9 +30,10 @@ describe('priceCdOrder', () => {
     expect(card - bare).toBe(125 * 2)
   })
 
-  it('adds gloss at $0.25 per cover', () => {
-    const plain = priceCdOrder({ qty: 1, packaging: 'jewel' }).perDisc
-    expect(priceCdOrder({ qty: 1, packaging: 'jewel', gloss: true }).perDisc - plain).toBe(25)
+  it('has no gloss option any more (a stray flag changes nothing)', () => {
+    const plain = priceCdOrder({ qty: 1, packaging: 'jewel' })
+    expect(priceCdOrder({ qty: 1, packaging: 'jewel', gloss: true }).total).toBe(plain.total)
+    expect('gloss' in normalizeCdConfig({ gloss: true })).toBe(false)
   })
 
   it('adds 20% rush on production (discs + setup), taxed, but not on shipping', () => {
@@ -87,7 +89,7 @@ describe('priceCdOrder', () => {
 
   it('ignores cover options on a disc-only order', () => {
     const plain = priceCdOrder({ qty: 5, packaging: 'sleeve' })
-    const noisy = priceCdOrder({ qty: 5, packaging: 'sleeve', stock: 'cardstock', gloss: true, panelCount: 4, removeCredit: true })
+    const noisy = priceCdOrder({ qty: 5, packaging: 'sleeve', stock: 'cardstock', panelCount: 4, removeCredit: true })
     expect(noisy.total).toBe(plain.total)
   })
 
@@ -440,5 +442,100 @@ describe('firestore.rules — shippingRequests', () => {
 
   it('lets the owner request labels', async () => {
     await assertSucceeds(setDoc(doc(owner(), 'shippingRequests/e'), { uid: 'ownerUid', action: 'buy_label', status: 'pending' }))
+  })
+})
+
+// ── Test press promo ─────────────────────────────────────────────────────────
+describe('test press promo', () => {
+  const hash = code => createHash('sha256').update(normalizePromoCode(code)).digest('hex')
+  const promo = findPromoByHash(hash('TESTPRESS'))
+
+  it('matches the code case- and space-insensitively, and nothing else', () => {
+    expect(promo?.id).toBe('testpress')
+    expect(findPromoByHash(hash('  testpress '))?.id).toBe('testpress')
+    expect(findPromoByHash(hash('TESTPRES'))).toBeNull()
+    // The code itself never appears in the price table.
+    expect(JSON.stringify(CD_PROMOS)).not.toMatch(/TESTPRESS"/)
+  })
+
+  it('prices 25–50 disc-only at $2 all-in: no setup fee, tax included, $5 shipping', () => {
+    for (const qty of [25, 40, 50]) {
+      const p = priceCdOrder({ qty, packaging: 'sleeve' }, { promo })
+      expect(p.promoId).toBe('testpress')
+      expect(p.setupFee).toBe(0)
+      expect(p.tax).toBe(0)
+      expect(p.total).toBe(qty * 200 + CD_PRICING.shippingFlat)
+      expect(p.isDeposit).toBe(false)   // 50 discs still pays in full
+      expect(p.taxIncluded).toBe(Math.round(qty * 200 - (qty * 200) / 1.07))
+    }
+  })
+
+  it('does not apply outside 25–50, to cases, with rush, or on a reorder', () => {
+    expect(priceCdOrder({ qty: 24, packaging: 'sleeve' }, { promo }).promoId).toBeUndefined()
+    expect(priceCdOrder({ qty: 51, packaging: 'sleeve' }, { promo }).promoId).toBeUndefined()
+    expect(priceCdOrder({ qty: 30, packaging: 'jewel' }, { promo }).promoId).toBeUndefined()
+    expect(promoProblem(promo, { qty: 30, packaging: 'slim' })).toMatch(/disc only/)
+    const rushed = priceCdOrder({ qty: 30, packaging: 'sleeve', rush: true }, { promo })
+    expect(rushed.rushFee).toBe(0)
+    expect(rushed.config.rush).toBe(false)
+    expect(priceCdOrder({ qty: 30, packaging: 'sleeve' }, { promo, reorderRate: 200 }).promoId).toBeUndefined()
+  })
+})
+
+describe('onCheckoutRequestCreated — test press promo', () => {
+  let admin, db, fns, created
+
+  beforeAll(async () => {
+    admin = (await import('firebase-admin')).default
+    fns = await import('../functions/index.js')
+    db = admin.firestore()
+    fns.__setStripeStub({
+      checkout: { sessions: {
+        create: async (params) => { created.push(params); return { id: 'cs_stub', url: 'https://stripe.test/pay' } },
+        listLineItems: async () => ({ data: [] }),
+      } },
+    })
+  })
+
+  beforeEach(async () => {
+    created = []
+    for (const name of ['quoteRequests', 'checkoutRequests']) {
+      const snap = await db.collection(name).get()
+      await Promise.all(snap.docs.map(d => d.ref.delete()))
+    }
+  })
+
+  async function order(extra) {
+    await db.doc('quoteRequests/tp1').set({
+      uid: 'u1', email: 'band@example.com', name: 'Band', qty: 30, packaging: 'sleeve',
+      status: 'pending_payment', paymentStatus: 'unpaid', ...extra,
+    })
+    const ref = db.collection('checkoutRequests').doc()
+    const data = { type: 'cd_order', orderId: 'tp1', uid: 'u1' }
+    await ref.set(data)
+    await fns.onCheckoutRequestCreated.run({ data: () => data, ref }, { params: { docId: ref.id } })
+    return (await ref.get()).data()
+  }
+
+  it('charges $2 a disc with no setup or tax lines, plus $5 shipping', async () => {
+    expect((await order({ promoCode: 'testpress' })).status).toBe('ready')
+    const names = created[0].line_items.map(l => l.price_data.product_data.name)
+    expect(names).not.toContain('Setup fee')
+    expect(names).not.toContain('Indiana sales tax')
+    expect(names[0]).toMatch(/Test press — setup & sales tax included/)
+    const discs = created[0].line_items[0]
+    expect(discs.price_data.unit_amount).toBe(200)
+    expect(discs.quantity).toBe(30)
+    const total = created[0].line_items.reduce((t, l) => t + l.price_data.unit_amount * l.quantity, 0)
+    expect(total).toBe(30 * 200 + 500)
+    const o = (await db.doc('quoteRequests/tp1').get()).data()
+    expect(o).toMatchObject({ promoId: 'testpress', totalCents: 6500, perDiscCents: 200 })
+  })
+
+  it('refuses a bad code or an order the promo does not cover', async () => {
+    expect((await order({ promoCode: 'FREECDS' })).status).toBe('error')
+    expect((await order({ promoCode: 'TESTPRESS', qty: 80 })).status).toBe('error')
+    expect((await order({ promoCode: 'TESTPRESS', packaging: 'jewel' })).status).toBe('error')
+    expect(created).toHaveLength(0)
   })
 })

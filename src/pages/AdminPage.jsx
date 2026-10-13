@@ -1456,7 +1456,7 @@ function CDOrdersPanel() {
                   <span className="text-warm-gray">Packaging</span><span className="text-ink">{CD_PACK[o.packaging]}</span>
                   {o.packaging !== 'sleeve' && <>
                     <span className="text-warm-gray">Cover</span>
-                    <span className="text-ink">{o.panelCount}-panel · {o.stock === 'cardstock' ? 'Cardstock' : 'Standard paper'}{o.gloss ? ' · Gloss' : ''}</span>
+                    <span className="text-ink">{o.panelCount}-panel · {o.stock === 'cardstock' ? 'Cardstock' : 'Standard paper'}</span>
                     <span className="text-warm-gray">AS credit</span><span className="text-ink">{o.removeCredit ? 'Leave off' : 'Print it'}</span>
                   </>}
                   {o.packaging === 'jewel' && <>
@@ -1496,7 +1496,7 @@ function CDOrdersPanel() {
               {!legacy && o.packaging && (
                 <div style={{ maxWidth: '420px' }}>
                   <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Mock-up</p>
-                  <CdMockup packaging={o.packaging} panelCount={o.panelCount} gloss={o.gloss}
+                  <CdMockup packaging={o.packaging} panelCount={o.panelCount}
                     art={o.artwork || {}} artistName={o.artistName} albumTitle={o.albumTitle} />
                 </div>
               )}

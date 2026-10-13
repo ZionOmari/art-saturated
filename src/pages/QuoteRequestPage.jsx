@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { checkoutCdOrder } from '../lib/stripe'
 import {
   CD_PRICING, PACKAGING_LABELS, STOCK_LABELS, priceCdOrder, reorderWindow, fmtCents,
+  normalizePromoCode, findPromoByHash, promoProblem,
 } from '../../functions/cdPricing.mjs'
 import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
@@ -264,7 +265,7 @@ function PayExisting({ orderId }) {
             {order.qty} × {PACKAGING_LABELS[order.packaging] || order.packaging} · Order #{order.id.slice(-6).toUpperCase()}
           </p>
           <div className="mb-8 text-left">
-            <CdMockup packaging={order.packaging} panelCount={order.panelCount} gloss={order.gloss}
+            <CdMockup packaging={order.packaging} panelCount={order.panelCount}
               art={order.artwork || {}} artistName={order.artistName} albumTitle={order.albumTitle} />
           </div>
           {due > 0 ? (
@@ -302,6 +303,12 @@ function InquiryLink({ context }) {
       {' '}for a shipping quote.
     </p>
   )
+}
+
+// Promo codes are matched by SHA-256 so the codes aren't in the page source.
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 // ── Terms of Service ──────────────────────────────────────────────────────────
@@ -436,12 +443,12 @@ function Reorder({ sourceId }) {
         <h1 className="font-serif text-[2rem] font-normal">{src.artistName} — {src.albumTitle}</h1>
         <p className="font-mono text-[12px] text-warm-gray mt-1">
           {PACKAGING_LABELS[src.packaging]}
-          {src.packaging !== 'sleeve' && ` · ${src.panelCount}-panel · ${STOCK_LABELS[src.stock]}${src.gloss ? ' · gloss' : ''}`}
+          {src.packaging !== 'sleeve' && ` · ${src.panelCount}-panel · ${STOCK_LABELS[src.stock]}`}
           {' · '}{(src.trackList || []).length} tracks
         </p>
       </div>
 
-      <CdMockup packaging={src.packaging} panelCount={src.panelCount} gloss={src.gloss}
+      <CdMockup packaging={src.packaging} panelCount={src.panelCount}
         art={src.artwork || {}} artistName={src.artistName} albumTitle={src.albumTitle} />
 
       {!w.open ? (
@@ -507,8 +514,10 @@ export default function QuoteRequestPage() {
   const [qty,          setQty]          = useState('25')
   const delivery = 'ship'   // online only — every order ships
   const [removeCredit, setRemoveCredit] = useState(false)
-  const [gloss,        setGloss]        = useState(false)
   const [rush,         setRush]         = useState(false)
+  const [promoInput,   setPromoInput]   = useState('')
+  const [promo,        setPromo]        = useState(null)   // matched CD_PROMOS entry
+  const [promoMsg,     setPromoMsg]     = useState('')
 
   // Release + contact
   const [info, setInfo] = useState({ name: '', email: '', phone: '', artistName: '', albumTitle: '' })
@@ -535,10 +544,20 @@ export default function QuoteRequestPage() {
   const [error,   setError]   = useState('')
 
   const printed = packaging !== 'sleeve'
+  const promoIssue = promo ? promoProblem(promo, { qty: Math.max(1, parseInt(qty, 10) || 0), packaging }) : null
+
+  async function applyPromo() {
+    const code = normalizePromoCode(promoInput)
+    if (!code) { setPromo(null); setPromoMsg(''); return }
+    const match = findPromoByHash(await sha256Hex(code))
+    setPromo(match)
+    setPromoMsg(match ? '' : 'That code isn’t valid.')
+  }
+
   const qtyNum  = parseInt(qty, 10) || 0
   const price   = useMemo(
-    () => priceCdOrder({ qty: Math.max(1, qtyNum), packaging, panelCount, stock, gloss, removeCredit, delivery, rush }),
-    [qtyNum, packaging, panelCount, stock, gloss, removeCredit, delivery, rush],
+    () => priceCdOrder({ qty: Math.max(1, qtyNum), packaging, panelCount, stock, removeCredit, delivery, rush }, { promo }),
+    [qtyNum, packaging, panelCount, stock, removeCredit, delivery, rush, promo],
   )
 
   // Artwork slots required by the current config
@@ -643,6 +662,7 @@ export default function QuoteRequestPage() {
         artistName: info.artistName.trim(),
         albumTitle: info.albumTitle.trim(),
         ...c,
+        ...(price.promoId ? { promoCode: normalizePromoCode(promoInput) } : {}),
         trackList:  tracks.map(t => t.title.trim()),
         audioFiles,
         artwork,
@@ -720,10 +740,6 @@ export default function QuoteRequestPage() {
                 { key: '2', label: '2-panel', sub: 'Folded card: front + back' },
                 { key: '4', label: '4-panel', sub: 'Booklet: front, inside spread, back' },
               ]} />
-              <label className="flex items-start gap-2 font-mono text-[11px] text-ink cursor-pointer">
-                <input type="checkbox" checked={gloss} onChange={e => setGloss(e.target.checked)} className="mt-0.5" />
-                <span>Gloss finish on the covers (+{fmtCents(CD_PRICING.gloss)} per cover). The disc stays matte.</span>
-              </label>
             </div>
           </Section>
         )}
@@ -743,7 +759,9 @@ export default function QuoteRequestPage() {
             </p>
             <p className="font-mono text-[11px] text-ink">Ships within the US · {fmtCents(CD_PRICING.shippingFlat)} flat</p>
             <InquiryLink context="CD printing" />
-            <TurnaroundChoice value={rush} onChange={setRush} />
+            {price.promoId
+              ? <p className="font-mono text-[11px] text-warm-gray">{price.promoLabel} orders use standard turnaround (7–14 days).</p>
+              : <TurnaroundChoice value={rush} onChange={setRush} />}
           </div>
         </Section>
 
@@ -817,7 +835,7 @@ export default function QuoteRequestPage() {
         </Section>
 
         <Section n={printed ? 7 : 6} title="Preview">
-          <CdMockup packaging={packaging} panelCount={panelCount} gloss={gloss}
+          <CdMockup packaging={packaging} panelCount={panelCount}
             art={Object.fromEntries(Object.entries(art).filter(([, a]) => a).map(([k, a]) => [k, a.preview]))}
             artistName={info.artistName} albumTitle={info.albumTitle} />
         </Section>
@@ -841,11 +859,11 @@ export default function QuoteRequestPage() {
               <span className="text-warm-gray">{price.config.qty} discs × {fmtCents(price.perDisc)}</span>
               <span className="text-ink">{fmtCents(price.discsTotal)}</span>
             </div>
-            <div className="flex justify-between"><span className="text-warm-gray">Setup fee (one per order)</span><span className="text-ink">{fmtCents(price.setupFee)}</span></div>
+            <div className="flex justify-between"><span className="text-warm-gray">Setup fee (one per order)</span><span className="text-ink">{price.promoId ? 'included' : fmtCents(price.setupFee)}</span></div>
             {price.rushFee > 0 && (
               <div className="flex justify-between"><span className="text-warm-gray">Rush, under {CD_PRICING.rushDays} days (+{CD_PRICING.rushPct}%)</span><span className="text-ink">{fmtCents(price.rushFee)}</span></div>
             )}
-            <div className="flex justify-between"><span className="text-warm-gray">Indiana sales tax ({Math.round(CD_PRICING.taxRate * 100)}%)</span><span className="text-ink">{fmtCents(price.tax)}</span></div>
+            <div className="flex justify-between"><span className="text-warm-gray">Indiana sales tax ({Math.round(CD_PRICING.taxRate * 100)}%)</span><span className="text-ink">{price.promoId ? 'included' : fmtCents(price.tax)}</span></div>
             {price.shipping > 0 && (
               <div className="flex justify-between"><span className="text-warm-gray">Shipping (US flat rate)</span><span className="text-ink">{fmtCents(price.shipping)}</span></div>
             )}
@@ -862,6 +880,18 @@ export default function QuoteRequestPage() {
                 <span className="text-warm-gray">{fmtCents(price.balance)}</span>
               </div>
             )}
+          </div>
+
+          <div className="mb-4">
+            <div className="flex gap-2">
+              <input style={{ ...inp, flex: 1 }} placeholder="Promo code" value={promoInput} aria-label="Promo code"
+                onChange={e => { setPromoInput(e.target.value); if (promo) { setPromo(null); setPromoMsg('') } }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyPromo() } }} />
+              <button type="button" onClick={applyPromo} className="btn-outline text-[11px] shrink-0">Apply</button>
+            </div>
+            {promoMsg && <p className="font-mono text-[11px] text-red-500 mt-1">{promoMsg}</p>}
+            {promo && !promoIssue && <p className="font-mono text-[11px] text-earth mt-1">✓ {promo.label}: {fmtCents(promo.perDiscAllIn)} a disc, setup and tax included.</p>}
+            {promo && promoIssue && <p className="font-mono text-[11px] text-earth mt-1">{promoIssue}</p>}
           </div>
 
           {printed && (

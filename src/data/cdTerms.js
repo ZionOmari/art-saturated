@@ -22,7 +22,7 @@ export const CD_TERMS = [
     title: 'Your files',
     items: [
       'We print exactly what you upload, cropped as shown in the crop frame. There is no proof or design round. The mock-up on the order page shows the layout.',
-      'Screen colors and printed colors differ slightly. Paper, cardstock, and gloss each change how colors look. This is not a defect.',
+      'Screen colors and printed colors differ slightly. Paper and cardstock each change how colors look. This is not a defect.',
       'Keep text and important details at least 1/8" (3 mm) from every edge. On jewel case tray cards, the outer 1/4" on each side is covered by the spines.',
       'Low-resolution images print blurry. We warn you on the crop screen, but we print what you submit.',
       'Audio is burned as uploaded, in the track order you list. We do not master, normalize, or edit audio. One disc holds up to 80 minutes.',
@@ -34,7 +34,6 @@ export const CD_TERMS = [
     items: [
       'Production starts when payment clears. Most orders are ready in 7–14 days. We email you when your CDs are ready, and again when they ship.',
       `Rush orders are ready in under ${CD_PRICING.rushDays} days for ${CD_PRICING.rushPct}% more on production (discs and setup fee; shipping is not included). If we miss a rush deadline, we refund the rush fee.`,
-      'Gloss finish applies to printed covers only. Discs are printed matte.',
       `A small "Printed at Art Saturated" credit appears on the inside of the cover unless you choose to leave it off (+${fmtCents(CD_PRICING.removeCredit)} per disc).`,
     ],
   },
