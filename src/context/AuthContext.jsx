@@ -229,8 +229,6 @@ export function AuthProvider({ children }) {
     )]
     const sellerId = artSellerUids.length === 1 ? artSellerUids[0] : null
 
-    const isLocalDropoff = (cart || []).some(i => i.localDropoff === true)
-
     const orderRef = await addDoc(collection(db, 'orders'), {
       uid:            user.uid,
       email:          user.email,
@@ -245,7 +243,6 @@ export function AuthProvider({ children }) {
       status:         'pending',
       paymentStatus:  'pending',
       ...(sellerId        ? { sellerId }        : {}),
-      ...(isLocalDropoff  ? { isLocalDropoff }  : {}),
       ...(shippingAddress ? { shippingAddress } : {}),
       createdAt:      serverTimestamp(),
     })

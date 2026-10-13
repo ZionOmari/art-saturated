@@ -1327,12 +1327,9 @@ exports.onOrderStatusChanged = functions.firestore
       const seller         = sellerSnap.data()
       if (!seller?.email) return null
       const cfg = configSnap.exists ? configSnap.data() : {}
-      // Local drop-off items earn 5% commission (Art Saturated handles the physical item)
-      const isLocal        = after.isLocalDropoff ||
-        (after.items || []).some(i => i.localDropoff)
-      const commissionRate = isLocal
-        ? (cfg.localCommissionRate ?? 0.05)
-        : (cfg.commissionRate ?? after.commission ?? 0.10)
+      // One commission rate. The 5% "local drop-off" rate ended with the
+      // physical storefront (online only since Oct 2026).
+      const commissionRate = cfg.commissionRate ?? after.commission ?? 0.10
       const commissionPct  = Math.round(commissionRate * 100)
       const commissionAmt  = (after.total * commissionRate).toFixed(2)
       const payout         = (after.total * (1 - commissionRate)).toFixed(2)
@@ -1545,7 +1542,7 @@ exports.onCommissionMessage = functions.firestore
 // ── Shippo: Shared helpers ────────────────────────────────────────────────────
 // Ship-from (return) address comes from settings/storeConfig.shipFromAddress
 // ({ name, street1, street2?, city, state, zip, country, email }). There is no
-// default: Art Saturated is online only (the Parnell Ave shop closed), and a
+// default: Art Saturated is online only (the physical shop closed), and a
 // label must never print an address that no longer receives returns.
 
 async function shippoFetch(path, method, body) {

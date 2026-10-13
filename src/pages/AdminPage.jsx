@@ -91,8 +91,6 @@ const BLANK = {
   isPrint:    false,
   isOriginal: false,
   unique:      false,
-  localPickup:  false,
-  localDropoff: false,  // artist drops off at store → 5% commission, ships or pickup
   newArrival:   false,
   localLegend:  false,
   image:    null,
@@ -318,7 +316,7 @@ function SeoArticleGenerator({ onGenerated }) {
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
         <input
           type="text" value={topic} onChange={e => setTopic(e.target.value)}
-          placeholder="Topic, e.g. 'How to start collecting local art in Fort Wayne'"
+          placeholder="Topic, e.g. 'How to start collecting art from independent artists'"
           onKeyDown={e => { if (e.key === 'Enter') generate() }}
           style={{ flex: 1, minWidth: '220px', fontFamily: 'monospace', fontSize: '12px', padding: '9px 12px', border: '1px solid #d4c9bb', background: '#faf8f4', color: '#1a1208', outline: 'none' }}
         />
@@ -693,7 +691,7 @@ function OrdersPanel() {
                   </p>
                   <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#8a5c3a', margin: '2px 0 0' }}>
                     {formatDate(order.createdAt)} · ${order.total?.toFixed(2) || '?'}
-                    {order.shippingMethod === 'pickup' && <span style={{ marginLeft: '6px', color: '#b97a30' }}>· Pickup</span>}
+                    {order.shippingMethod === 'pickup' && <span style={{ marginLeft: '6px', color: '#b97a30' }}>· Pickup (legacy)</span>}
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
@@ -1422,7 +1420,7 @@ function CDOrdersPanel() {
               <span className="block font-mono text-[11px] text-warm-gray">
                 {o.qty} × {CD_PACK[o.packaging] || (o.orderType === 'disc-only' ? 'Disc only' : 'Full CD')}
                 {o.totalCents ? ` · ${usd(o.totalCents)}` : o.estimatedTotal ? ` · ~$${o.estimatedTotal.toFixed(2)}` : ''}
-                {o.delivery === 'ship' ? ' · ship' : o.delivery === 'pickup' ? ' · pickup' : ''}
+                
                 {' · '}{o.email}
               </span>
             </div>
@@ -1580,6 +1578,8 @@ function CDOrdersPanel() {
 const OWNER_EMAIL = 'zionomari@artsaturated.com'
 
 
+const EMPTY_SHIP_FROM = { name: 'Art Saturated', street1: '', street2: '', city: '', state: 'IN', zip: '' }
+
 // ── Store Config Panel ────────────────────────────────────────────────────────
 function StoreConfigPanel() {
   const [form,   setForm]   = useState(null)
@@ -1598,17 +1598,12 @@ function StoreConfigPanel() {
       setForm({
         commissionRate:       d.commissionRate       ?? 0.10,
         taxRate:              d.taxRate              ?? 0.07,
-        tier0: d.shippingTiers?.[0] ?? 4.99,
-        tier1: d.shippingTiers?.[1] ?? 7.99,
-        tier2: d.shippingTiers?.[2] ?? 12.99,
-        tier3: d.shippingTiers?.[3] ?? 18.99,
-        localCommissionRate: d.localCommissionRate ?? 0.05,
         bundleDealEnabled:    d.bundleDeal?.enabled     ?? false,
         bundleDealMinQty:     d.bundleDeal?.minQty      ?? 2,
         bundleDealPct:        d.bundleDeal?.discountPct ?? 10,
-        blogSubmissionFee:    d.blogSubmissionFee        ?? 0,
+        shipFrom:             { ...EMPTY_SHIP_FROM, ...(d.shipFromAddress || {}) },
       })
-    }).catch(() => setForm({ commissionRate: 0.10, localCommissionRate: 0.05, taxRate: 0.07, tier0: 4.99, tier1: 7.99, tier2: 12.99, tier3: 18.99, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, blogSubmissionFee: 0 }))
+    }).catch(() => setForm({ commissionRate: 0.10, taxRate: 0.07, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, shipFrom: { ...EMPTY_SHIP_FROM } }))
   }, [])
 
   async function handleSave() {
@@ -1617,15 +1612,17 @@ function StoreConfigPanel() {
     try {
       await setDoc(doc(db, 'settings', 'storeConfig'), {
         commissionRate:        Number(form.commissionRate),
-        localCommissionRate:   Number(form.localCommissionRate),
         taxRate:               Number(form.taxRate),
-        shippingTiers:         [Number(form.tier0), Number(form.tier1), Number(form.tier2), Number(form.tier3)],
         bundleDeal: {
           enabled:     !!form.bundleDealEnabled,
           minQty:      Number(form.bundleDealMinQty)  || 2,
           discountPct: Number(form.bundleDealPct)     || 10,
         },
-        blogSubmissionFee: Number(form.blogSubmissionFee) || 0,
+        // Return address on Shippo labels. Saved only once it's complete, so a
+        // half-typed address can never reach a label.
+        ...(['name', 'street1', 'street2', 'city', 'state', 'zip'].filter(k => k !== 'street2').every(k => String(form.shipFrom?.[k] || '').trim())
+          ? { shipFromAddress: { ...Object.fromEntries(['name', 'street1', 'street2', 'city', 'state', 'zip'].map(k => [k, String(form.shipFrom[k] || '').trim()])), country: 'US' } }
+          : {}),
       }, { merge: true })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -1656,24 +1653,6 @@ function StoreConfigPanel() {
         <p className="font-mono text-[11px] text-warm-gray mt-2">Enter as decimal — e.g. 0.10 for 10%</p>
       </div>
 
-      {/* Local Drop-off Commission */}
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Local Drop-off Commission</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="number" min="0" max="1" step="0.01"
-            value={form.localCommissionRate}
-            onChange={e => setForm(f => ({ ...f, localCommissionRate: e.target.value }))}
-            style={{ ...inp, maxWidth: '100px' }}
-          />
-          <span className="font-mono text-[12px] text-warm-gray">
-            ({Math.round(Number(form.localCommissionRate) * 100)}% — artist drops off at store)
-          </span>
-        </div>
-        <p className="font-mono text-[11px] text-warm-gray mt-2">Applied when a product is flagged "Local Drop-off" in the product form.</p>
-      </div>
-
-
       {/* Tax */}
       <div>
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Tax Rate</p>
@@ -1691,29 +1670,29 @@ function StoreConfigPanel() {
         <p className="font-mono text-[11px] text-warm-gray mt-2">Enter as decimal — e.g. 0.07 for 7%</p>
       </div>
 
-      {/* Shipping tiers */}
+      {/* Shipping */}
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Shipping Tiers</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-2">Shipping</p>
+        <p className="font-mono text-[11px] text-warm-gray mb-4">
+          Flat $5 per order in the US (shop and CD printing). Outside the US is by inquiry.
+        </p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-2">Ship-from (return) address</p>
+        <p className="font-mono text-[11px] text-warm-gray mb-3">
+          Printed on shipping labels. Required before "Buy label" works. Not shown to customers.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
-            { field: 'tier0', label: '≤ 8 oz' },
-            { field: 'tier1', label: '≤ 16 oz' },
-            { field: 'tier2', label: '≤ 48 oz' },
-            { field: 'tier3', label: '> 48 oz' },
-          ].map(({ field, label }) => (
-            <div key={field} style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
-              <span className="font-mono text-[13px] text-ink">{label}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span className="font-mono text-[14px] text-warm-gray">$</span>
-                <input
-                  type="number" min="0" step="0.01"
-                  value={form[field]}
-                  onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                  style={{ ...inp, maxWidth: '100px' }}
-                />
-              </div>
-            </div>
+            ['name', 'Name or business'], ['street1', 'Street address'], ['street2', 'Apt / suite (optional)'],
+          ].map(([k, ph]) => (
+            <input key={k} placeholder={ph} value={form.shipFrom?.[k] || ''} style={inp}
+              onChange={e => setForm(f => ({ ...f, shipFrom: { ...f.shipFrom, [k]: e.target.value } }))} />
           ))}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 100px', gap: '8px' }}>
+            {[['city', 'City'], ['state', 'State'], ['zip', 'ZIP']].map(([k, ph]) => (
+              <input key={k} placeholder={ph} value={form.shipFrom?.[k] || ''} style={inp}
+                onChange={e => setForm(f => ({ ...f, shipFrom: { ...f.shipFrom, [k]: e.target.value } }))} />
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1765,23 +1744,6 @@ function StoreConfigPanel() {
         )}
       </div>
 
-      {/* Art Saturated Magazine — blog submission fee */}
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Magazine Article Submission Fee</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className="font-mono text-[14px] text-warm-gray">$</span>
-          <input
-            type="number" min="0" step="0.01"
-            value={form.blogSubmissionFee}
-            onChange={e => setForm(f => ({ ...f, blogSubmissionFee: e.target.value }))}
-            style={{ ...inp, maxWidth: '100px' }}
-          />
-        </div>
-        <p className="font-mono text-[11px] text-warm-gray mt-2">
-          Charged per article submitted to Art Saturated Magazine. Set to 0 for free submissions.
-        </p>
-      </div>
-
       <button
         onClick={handleSave}
         disabled={saving}
@@ -1798,7 +1760,7 @@ function StoreConfigPanel() {
 const BLANK_ALBUM = {
   artistName: '', albumTitle: '', slug: '', price: '10',
   releaseDate: '', description: '', coverArt: '',
-  digitalAvailable: true, physicalAvailable: true, pickupAvailable: true,
+  digitalAvailable: true, physicalAvailable: true, pickupAvailable: false,  // online only
   active: true,
 }
 
@@ -1823,7 +1785,7 @@ function AlbumPreordersPanel() {
           artistName: 'Zionomari', albumTitle: 'Enigma', price: 10,
           releaseDate: 'May 2026', description: '',
           coverArt: '', digitalAvailable: true,
-          physicalAvailable: true, pickupAvailable: true, active: true,
+          physicalAvailable: true, pickupAvailable: false, active: true,
         }
         await setDoc(doc(db, 'albumPreorders', 'enigma'), enigma)
         existing.push({ slug: 'enigma', ...enigma })
@@ -1863,7 +1825,7 @@ function AlbumPreordersPanel() {
       coverArt:         form.coverArt.trim(),
       digitalAvailable:  form.digitalAvailable,
       physicalAvailable: form.physicalAvailable,
-      pickupAvailable:   form.pickupAvailable,
+      pickupAvailable:   false,   // online only — no pickup
       active:            form.active,
     }
     try {
@@ -1927,7 +1889,7 @@ function AlbumPreordersPanel() {
 
       {/* Delivery toggles */}
       <p style={{ fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#8a5c3a', marginBottom: '10px' }}>Delivery Options</p>
-      {[['digitalAvailable', 'Digital Download'], ['physicalAvailable', 'Ship Physical Copy'], ['pickupAvailable', 'Local Pickup']].map(([key, label]) => (
+      {[['digitalAvailable', 'Digital Download'], ['physicalAvailable', 'Ship Physical Copy']].map(([key, label]) => (
         <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', cursor: 'pointer' }}>
           <input type="checkbox" checked={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.checked }))} style={{ accentColor: '#1a1208', width: '14px', height: '14px' }} />
           <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#1a1208' }}>{label}</span>
@@ -2132,7 +2094,7 @@ function PreordersPanel() {
           className="font-mono" style={{ padding: '8px 10px', border: '1px solid #d8d3cb', background: '#fff', fontSize: '11px', marginBottom: '12px', width: '100%' }}>
           <option value="digital">Digital Download</option>
           <option value="ship">Ship Physical Copy (+$4.99)</option>
-          <option value="pickup">Local Pickup</option>
+          <option value="pickup">Pickup (legacy)</option>
         </select>
         <button onClick={recordCash} disabled={!picked || saving}
           className="btn-outline" style={{ width: '100%', padding: '10px', opacity: picked ? 1 : 0.5 }}>
@@ -2194,7 +2156,7 @@ function PreordersPanel() {
                     className="font-mono" style={{ padding: '5px 8px', border: '1px solid #d8d3cb', fontSize: '11px', background: '#fff' }}>
                     <option value="digital">Digital</option>
                     <option value="ship">Ship</option>
-                    <option value="pickup">Pickup</option>
+                    {editMethod === "pickup" && <option value="pickup">Pickup (legacy)</option>}
                   </select>
                   <select value={editStatus} onChange={e => setEditStatus(e.target.value)}
                     className="font-mono" style={{ padding: '5px 8px', border: '1px solid #d8d3cb', fontSize: '11px', background: '#fff' }}>
@@ -4106,53 +4068,18 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* One of a kind (+ Local Pickup Only for plants) for non-Art categories */}
+            {/* One of a kind for non-Art categories */}
             {form.category !== 'Art' && (
-              <div className="flex flex-col gap-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.unique}
-                    onChange={(e) => setForm({ ...form, unique: e.target.checked })}
-                    className="w-5 h-5 accent-ink"
-                  />
-                  <span className="font-mono text-[13px]">One of a kind</span>
-                </label>
-                {form.category === 'Get On The Flora' && (
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!form.localPickup}
-                      onChange={(e) => setForm({ ...form, localPickup: e.target.checked })}
-                      className="w-5 h-5 accent-ink"
-                    />
-                    <span className="font-mono text-[13px]">
-                      Local Pickup Only
-                      <span className="block font-mono text-[11px] text-warm-gray">No shipping — buyer must collect in person</span>
-                    </span>
-                  </label>
-                )}
-              </div>
-            )}
-
-            {/* Local Drop-off — artist physically delivered item to the store */}
-            <div className="border border-warm-gray-light p-4" style={{ background: form.localDropoff ? 'rgba(185,122,48,0.05)' : 'transparent' }}>
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={!!form.localDropoff}
-                  onChange={(e) => setForm({ ...form, localDropoff: e.target.checked })}
-                  className="w-5 h-5 accent-ink mt-0.5"
+                  checked={form.unique}
+                  onChange={(e) => setForm({ ...form, unique: e.target.checked })}
+                  className="w-5 h-5 accent-ink"
                 />
-                <span>
-                  <span className="font-mono text-[13px] text-ink block">Local Drop-off Item</span>
-                  <span className="font-mono text-[11px] text-warm-gray block mt-0.5">
-                    Artist delivered this item to the store. Commission: 5% (vs standard 10%).
-                    Collector can pick up in-store or Art Saturated can ship it.
-                  </span>
-                </span>
+                <span className="font-mono text-[13px]">One of a kind</span>
               </label>
-            </div>
+            )}
 
             {publishError && (
               <p className="font-mono text-[12px] text-red-500 mt-2">{publishError}</p>
