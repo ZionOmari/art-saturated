@@ -7,10 +7,10 @@ import { useAuth } from '../context/AuthContext'
 import { checkoutCart } from '../lib/stripe'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
+import ShippingRates from '../components/ShippingRates'
 
 // Fallback shipping tiers (oz → price)
 const DEFAULT_TIERS = [4.99, 7.99, 12.99, 18.99]
-const FLAT_SHIPPING = 5  // US, per order
 const DEFAULT_TAX   = 0.07
 
 export default function CartPage() {
@@ -84,13 +84,6 @@ export default function CartPage() {
   const TAX_RATE = storeConfig?.taxRate ?? DEFAULT_TAX
   const bundleDeal = storeConfig?.bundleDeal
 
-  // Flat US shipping — an estimate; the owner contacts the buyer if an order
-  // costs a lot more to ship. The server charges the same flat amount
-  // (US_FLAT_SHIPPING_CENTS in functions/index.js), whatever this sends.
-  // `tiers` (weight-based) is kept in store config but no longer used.
-  function calcShipping() {
-    return FLAT_SHIPPING
-  }
 
   const physMediaQty = useMemo(
     () => cart.filter(i => i.category === 'Physical Media').reduce((s, i) => s + i.qty, 0),
@@ -109,7 +102,11 @@ export default function CartPage() {
   // delivered by email, so a download-only cart has nothing to ship.
   const needsShipping = cart.some(i => !i.downloadPath)
   const method       = needsShipping ? 'ship' : 'digital'
-  const shippingCost = needsShipping ? calcShipping() : 0
+  // Live carrier rate the buyer picks (ShippingRates). The server re-checks
+  // the quote at checkout, so this number is display only.
+  const [ship, setShip] = useState(null)   // { quoteId, rate, address }
+  const shippingCost = needsShipping && ship ? ship.rate.amountCents / 100 : 0
+  const shipResetKey = JSON.stringify([addr.street1, addr.street2, addr.city, addr.state, addr.zip, cart.filter(i => !i.downloadPath).map(i => [i.id, i.qty])])
   const taxAmount    = parseFloat((cartTotal * TAX_RATE).toFixed(2))
   const orderTotal   = cartTotal + shippingCost + taxAmount - bundleDiscount
 
@@ -124,6 +121,10 @@ export default function CartPage() {
       const { name, street1, city, state, zip } = addr
       if (!name.trim() || !street1.trim() || !city.trim() || !state.trim() || !zip.trim()) {
         setAddrError('Please fill in all required address fields.')
+        return
+      }
+      if (!ship) {
+        setAddrError('Get shipping rates and pick a service.')
         return
       }
       setAddrError(null)
@@ -145,6 +146,7 @@ export default function CartPage() {
         taxAmount,
         shippingMethod: chosenMethod,
         bundleDiscount,
+        ...(chosenMethod === 'ship' && ship ? { shippingQuoteId: ship.quoteId, shippingRateId: ship.rate.objectId } : {}),
       })
       // Deliberately NOT clearing the cart here. checkoutCart redirects to
       // Stripe, and clearing at redirect time emptied the cart of anyone who
@@ -251,7 +253,7 @@ export default function CartPage() {
               </p>
               <p className="font-mono text-[11px] text-warm-gray">
                 {needsShipping ? <>
-                  Flat ${FLAT_SHIPPING.toFixed(2)} shipping · US only · Outside the US?{' '}
+                  Shipped at live carrier rates by weight · US only · Outside the US?{' '}
                   <button type="button" className="underline text-earth"
                     onClick={() => window.dispatchEvent(new CustomEvent('as:inquiry', {
                       detail: { message: `Shipping inquiry (shop cart): I'm outside the US. Country: \n\nItems: ${cart.map(i => `${i.name} × ${i.qty}`).join(', ')}` },
@@ -311,6 +313,17 @@ export default function CartPage() {
                     className="font-mono text-[13px] px-3 py-2 border border-warm-gray-light bg-paper text-ink outline-none focus:border-ink w-full"
                   />
                 </div>
+                <div className="mt-4">
+                  <ShippingRates
+                    address={addr}
+                    request={{ kind: 'cart', items: cart.filter(i => !i.downloadPath).map(i => ({ id: i.id, qty: i.qty })) }}
+                    email={user?.email}
+                    signedIn={!!user}
+                    resetKey={shipResetKey}
+                    value={ship}
+                    onChange={setShip}
+                  />
+                </div>
                 {addrError && (
                   <p className="font-mono text-[11px] text-red-500 mt-2">{addrError}</p>
                 )}
@@ -327,7 +340,7 @@ export default function CartPage() {
                 {method === 'ship' && (
                   <div className="flex justify-between font-mono text-[12px] text-warm-gray">
                     <span>Shipping</span>
-                    <span>{shippingCost > 0 ? `$${shippingCost.toFixed(2)}` : 'Free'}</span>
+                    <span>{ship ? `$${shippingCost.toFixed(2)}` : 'choose a rate'}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-mono text-[12px] text-warm-gray">

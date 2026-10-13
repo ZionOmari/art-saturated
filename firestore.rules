@@ -53,11 +53,12 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
       allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
     }
-    // Shippo requests (onShippingRequestCreated) — rates and label purchases,
-    // admin-only. The reply (status/result) is written by the function, never
-    // by a client.
+    // Shippo requests (onShippingRequestCreated). A signed-in customer may ask
+    // for a rate quote; order rates and label purchases are admin-only. The
+    // reply (status/result) is written by the function, never by a client.
     match /shippingRequests/{docId} {
-      allow create: if isAdmin()
+      allow create: if request.auth != null
+                    && (request.resource.data.action == 'quote' || isAdmin())
                     && request.resource.data.uid == request.auth.uid
                     && request.resource.data.status == 'pending'
                     && !request.resource.data.keys().hasAny(['result', 'error']);

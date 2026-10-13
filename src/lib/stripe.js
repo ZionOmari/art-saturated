@@ -49,8 +49,8 @@ function waitForCheckoutUrl(data) {
   })
 }
 
-export async function checkoutCart({ items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, bundleDiscount }) {
-  return waitForCheckoutUrl({ type: 'order', items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, bundleDiscount })
+export async function checkoutCart({ items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, bundleDiscount, shippingQuoteId, shippingRateId }) {
+  return waitForCheckoutUrl({ type: 'order', items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, bundleDiscount, shippingQuoteId: shippingQuoteId || null, shippingRateId: shippingRateId || null })
 }
 
 export async function checkoutDeposit({ customerEmail, orderId, productId, productName }) {

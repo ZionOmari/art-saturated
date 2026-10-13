@@ -41,7 +41,7 @@ export const CD_TERMS = [
     title: 'Shipping',
     items: [
       'Art Saturated is an online shop. Every order ships; there is no in-person pickup.',
-      `Shipping within the US is a flat ${fmtCents(CD_PRICING.shippingFlat)} per order. It is an estimate: if a large order costs substantially more to ship, we will contact you before it ships. We are not responsible for carrier delays.`,
+      'Shipping within the US is charged at the live carrier rate for the service you choose at checkout, based on the packed weight of your order. Delivery estimates are the carrier’s and start when your order ships. We are not responsible for carrier delays.',
       'Outside the US, message us for a shipping quote before ordering.',
       'Double-check your address: packages sent to an address you entered incorrectly are re-shipped at your cost.',
       'If an order arrives damaged, email us photos within 7 days of delivery and we will reprint the damaged discs.',

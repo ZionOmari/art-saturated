@@ -19,9 +19,6 @@ const FROM_EMAIL  = process.env.GMAIL_USER || OWNER_EMAIL
 const STORE_NAME = 'Art Saturated'
 const CLIENT_URL = 'https://artsaturated.com'
 
-// Shop cart shipping: one flat US rate per order (matches CartPage.jsx).
-// CD printing has its own in functions/cdPricing.mjs.
-const US_FLAT_SHIPPING_CENTS = 500
 
 // Artist membership. Amount lives here so checkout, emails and the UI copy
 // can't drift apart; change it in one place.
@@ -120,6 +117,27 @@ exports.onCheckoutRequestCreated = functions
         const order = orderSnap.data()
         const { priceCdOrder, reorderWindow, PACKAGING_LABELS, normalizePromoCode, findPromoByHash, promoProblem } = await import('./cdPricing.mjs')
 
+        // Shipping: a live Shippo rate the customer picked from a quote this
+        // server wrote (verifyShippingChoice). Balance payments reuse the
+        // amount frozen on the order at the first payment.
+        let shippingCents = 0
+        let shippingFields = {}
+        if (order.paymentStatus === 'unpaid') {
+          const v = await verifyShippingChoice({
+            uid: data.uid, quoteId: order.shippingQuoteId, rateId: order.shippingRateId,
+            expect: { kind: 'cd', qty: order.qty, packaging: order.packaging },
+          })
+          if (v.error) { await safeUpdate({ status: 'error', error: v.error }); return }
+          shippingCents = v.rate.amountCents
+          shippingFields = {
+            shippingCents,
+            shippingService: { carrier: v.rate.carrier, service: v.rate.service, token: v.rate.token, days: v.rate.days },
+            shippingAddress: v.address,
+          }
+        } else {
+          shippingCents = order.shippingCents || 0
+        }
+
         // A reorder reprints a paid project: it must belong to the same
         // customer, be inside the retention window, and it takes the source's
         // files, options and per-disc rate — whatever the client wrote.
@@ -138,7 +156,7 @@ exports.onCheckoutRequestCreated = functions
             return
           }
           const rate = src.perDiscCents || priceCdOrder(src).perDisc
-          p = priceCdOrder({ ...src, qty: order.qty, delivery: order.delivery, rush: order.rush }, { reorderRate: rate })
+          p = priceCdOrder({ ...src, qty: order.qty, delivery: order.delivery, rush: order.rush }, { reorderRate: rate, shippingCents })
           lockedFields = {
             ...p.config,
             artistName: src.artistName, albumTitle: src.albumTitle,
@@ -157,7 +175,7 @@ exports.onCheckoutRequestCreated = functions
               return
             }
           }
-          p = priceCdOrder(order, { promo })
+          p = priceCdOrder(order, { promo, shippingCents })
         }
 
         let stage, amount
@@ -209,9 +227,7 @@ exports.onCheckoutRequestCreated = functions
           cancel_url:  `${CLIENT_URL}/cd-printing?pay=${orderSnap.id}`,
           metadata: { type: 'cd_order', orderId: orderSnap.id, stage, uid: data.uid },
         }
-        if (stage === 'initial' && p.config.delivery === 'ship') {
-          sessionParams.shipping_address_collection = { allowed_countries: ['US'] }
-        }
+        // The address came from the verified shipping quote — Stripe doesn't ask again.
 
         const session = await s.checkout.sessions.create(sessionParams)
         // Freeze the server's price on the order. perDiscCents is the rate a
@@ -219,6 +235,7 @@ exports.onCheckoutRequestCreated = functions
         await orderRef.update(stage === 'initial'
           ? {
               ...lockedFields,
+              ...shippingFields,
               totalCents:   p.total,
               dueNowCents:  p.dueNow,
               perDiscCents: p.perDisc,
@@ -437,6 +454,7 @@ exports.onCheckoutRequestCreated = functions
       const serverPrices     = {}   // id → verified price from Firestore
       const serverCategories = {}   // id → category string
       let   hasPhysical      = false // anything without a downloadPath ships
+      const serverDigital    = {}   // id → true for download-only products
       for (const item of (items || [])) {
         if (!item.id) continue
         const pSnap = await admin.firestore().collection('products').doc(item.id).get()
@@ -453,6 +471,7 @@ exports.onCheckoutRequestCreated = functions
         serverPrices[item.id]     = Number(p.price)      // always use DB price, not client
         serverCategories[item.id] = p.category || ''
         if (!p.downloadPath) hasPhysical = true
+        else serverDigital[item.id] = true
       }
 
       // Standard order — price comes from Firestore, not client payload
@@ -465,17 +484,33 @@ exports.onCheckoutRequestCreated = functions
         quantity: Number(item.qty) || 1,
       }))
 
-      // Flat US shipping, set here rather than taken from the client. Online
-      // only (no pickup), so any physical item ships; download-only orders don't.
+      // Shipping: the live carrier rate the customer picked, re-read from the
+      // quote this server wrote — never an amount from the client. Online only
+      // (no pickup), so any physical item ships; download-only orders don't.
       if (hasPhysical) {
+        const { itemsKey } = await import('./shippingCalc.mjs')
+        const physical = (items || []).filter(i => i.id && serverPrices[i.id] !== undefined && !serverDigital[i.id])
+        const v = await verifyShippingChoice({
+          uid: data.uid, quoteId: data.shippingQuoteId, rateId: data.shippingRateId,
+          expect: { kind: 'cart', itemsKey: itemsKey(physical) },
+        })
+        if (v.error) { await safeUpdate({ status: 'error', error: v.error }); return }
         lineItems.push({
           price_data: {
             currency: 'usd',
-            unit_amount: US_FLAT_SHIPPING_CENTS,
-            product_data: { name: 'Shipping & Handling' },
+            unit_amount: v.rate.amountCents,
+            product_data: { name: `Shipping — ${v.rate.carrier} ${v.rate.service}` },
           },
           quantity: 1,
         })
+        // Record what was actually charged and where it's going.
+        if (orderId) {
+          await admin.firestore().doc(`orders/${orderId}`).update({
+            shippingCost:    v.rate.amountCents / 100,
+            shippingService: { carrier: v.rate.carrier, service: v.rate.service, token: v.rate.token, days: v.rate.days },
+            shippingAddress: v.address,
+          }).catch(e => console.error('order shipping update failed:', e.message))
+        }
       }
 
       if (Number(taxAmount) > 0) {
@@ -1580,6 +1615,7 @@ async function shippoFetch(path, method, body) {
 // A client writes shippingRequests/{id} with an `action`; this trigger does the
 // Shippo work and writes { status: 'ready', result } or { status: 'error' }.
 //
+//   quote      customer  address + cart items or CD config → live rates to choose from
 //   order_rates  admin   shop orderId → rates for that order
 //   buy_label    admin   { kind: 'order', orderId, rateObjectId } buys the picked rate
 //                        { kind: 'cd', orderId } re-rates and buys the service the
@@ -1665,9 +1701,9 @@ async function buyShopLabel(orderId, rateObjectId) {
   return { trackingNumber: t.tracking_number, labelUrl: t.label_url }
 }
 
-// Buys the label for a paid CD order. Customers pay a flat rate, so this
-// takes the cheapest live rate (or the customer's chosen service, if an
-// order has one) and flags it when postage runs well over what was charged.
+// Buys the label for a paid CD order: the service the customer chose at
+// checkout (or the cheapest live rate on older orders without one), flagged
+// when postage now runs well over what was charged.
 async function buyCdLabel(orderId) {
   const { cdParcels } = await import('./cdPricing.mjs')
   const ref = admin.firestore().doc(`quoteRequests/${orderId}`)
@@ -1704,6 +1740,73 @@ async function buyCdLabel(orderId) {
   }
 }
 
+// Rates only need the origin ZIP. Until a ship-from address is saved, quotes
+// price from Fort Wayne; this is never printed on anything.
+const QUOTE_ORIGIN = { name: 'Art Saturated', city: 'Fort Wayne', state: 'IN', zip: '46802', country: 'US' }
+
+// Customer rate quote for the cart or a CD order. The server works out what's
+// being shipped (product records / CD config), so the client only supplies the
+// address and which items. Checkout later re-reads this quote by id.
+async function customerQuote(data) {
+  const a = data.address || {}
+  for (const k of ['name', 'street1', 'city', 'state', 'zip']) {
+    if (!String(a[k] || '').trim()) throw new Error('Please fill in the full shipping address.')
+  }
+  let parcels, echo
+  if (data.kind === 'cd') {
+    const { cdParcels, normalizeCdConfig } = await import('./cdPricing.mjs')
+    const cfg = normalizeCdConfig(data.config)
+    parcels = cdParcels(cfg)
+    echo = { kind: 'cd', qty: cfg.qty, packaging: cfg.packaging }
+  } else {
+    const { cartParcels, itemsKey } = await import('./shippingCalc.mjs')
+    const lines = []
+    for (const it of (data.items || []).slice(0, 100)) {
+      if (!it?.id) continue
+      const p = await admin.firestore().doc(`products/${it.id}`).get()
+      if (!p.exists || p.data().downloadPath) continue   // downloads don't ship
+      lines.push({ product: p.data(), qty: Math.max(1, Math.floor(Number(it.qty) || 1)), id: it.id })
+    }
+    if (!lines.length) throw new Error('Nothing in this order needs shipping.')
+    parcels = cartParcels(lines)
+    echo = { kind: 'cart', itemsKey: itemsKey(lines) }
+  }
+
+  let from = QUOTE_ORIGIN
+  try { from = await shipFromAddress() } catch { /* not set yet — quote from the origin ZIP */ }
+  const shipment = await shippoFetch('/shipments/', 'POST', {
+    address_from: from,
+    address_to: { ...toShippoAddress(a, data.email), validate: true },
+    parcels,
+    async: false,
+  })
+  const v = shipment.address_to?.validation_results
+  if (v && v.is_valid === false) {
+    const why = (v.messages || []).map(m => m.text).filter(Boolean).join(' ')
+    throw new Error(`We couldn't verify that address. ${why}`.trim())
+  }
+  const rates = simplifyRates(shipment).slice(0, 8)
+  if (!rates.length) throw new Error('No carrier returned a rate for that address. Message us and we\'ll sort it out.')
+  return { rates, ...echo }
+}
+
+// Checks a customer's chosen rate against the quote this server wrote.
+// Returns { rate, address } or { error } — never trusts an amount from the client.
+async function verifyShippingChoice({ uid, quoteId, rateId, expect }) {
+  const snap = quoteId ? await admin.firestore().doc(`shippingRequests/${quoteId}`).get() : null
+  const q = snap?.exists ? snap.data() : null
+  const rate = q?.result?.rates?.find(r => r.objectId === rateId)
+  if (!q || q.uid !== uid || q.action !== 'quote' || q.status !== 'ready' || !rate) {
+    return { error: 'Please get shipping rates and pick a service.' }
+  }
+  const ageMs = snap.createTime ? Date.now() - snap.createTime.toMillis() : Infinity
+  if (ageMs > 3 * 24 * 60 * 60 * 1000) return { error: 'Your shipping quote expired. Please get rates again.' }
+  for (const [k, v] of Object.entries(expect)) {
+    if (String(q.result[k]) !== String(v)) return { error: 'Your order changed after you got shipping rates. Please get rates again.' }
+  }
+  return { rate, address: q.address }
+}
+
 exports.onShippingRequestCreated = functions
   .runWith({ timeoutSeconds: 120 })
   .firestore.document('shippingRequests/{id}')
@@ -1712,7 +1815,9 @@ exports.onShippingRequestCreated = functions
     const reply = patch => snap.ref.update(patch).catch(e => console.error('shippingRequests reply failed:', e.message))
     try {
       let result
-      {
+      if (data.action === 'quote') {
+        result = await customerQuote(data)
+      } else {
         // Everything else spends money or reads other people's orders.
         let email = null
         try { email = (await admin.auth().getUser(data.uid)).email } catch {}

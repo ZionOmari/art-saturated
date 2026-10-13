@@ -13,6 +13,15 @@ import { CD_PRICING, CD_PROMOS, priceCdOrder, normalizeCdConfig, reorderWindow, 
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
+// A live-rate quote as onShippingRequestCreated writes it. Checkout re-reads
+// it by id, so every shipped order in these tests points at one.
+const RATE    = { objectId: 'rate_1', carrier: 'UPS', service: 'Ground', token: 'ups_ground', days: 3, amountCents: 1234, amount: '12.34', currency: 'USD' }
+const SHIP_TO = { name: 'Band', street1: '1 Main St', city: 'Fort Wayne', state: 'IN', zip: '46802' }
+const SHIP    = { shippingQuoteId: 'sq', shippingRateId: 'rate_1' }
+async function seedQuote(db, result, { id = 'sq', uid = 'u1' } = {}) {
+  await db.doc(`shippingRequests/${id}`).set({ uid, action: 'quote', status: 'ready', address: SHIP_TO, result: { rates: [RATE], ...result } })
+}
+
 // ── Pricing ───────────────────────────────────────────────────────────────────
 describe('priceCdOrder', () => {
   it('adds the setup fee once per order, not per disc', () => {
@@ -81,10 +90,11 @@ describe('priceCdOrder', () => {
     expect(p.total).toBe(p.subtotal + p.tax + p.shipping)
   })
 
-  it('ships every order (online only — a pickup request is ignored)', () => {
-    const p = priceCdOrder({ qty: 10, packaging: 'slim', delivery: 'pickup' })
+  it('ships every order at the chosen carrier rate (a pickup request is ignored)', () => {
+    const p = priceCdOrder({ qty: 10, packaging: 'slim', delivery: 'pickup' }, { shippingCents: 1234 })
     expect(p.config.delivery).toBe('ship')
-    expect(p.shipping).toBe(CD_PRICING.shippingFlat)
+    expect(p.shipping).toBe(1234)
+    expect(priceCdOrder({ qty: 10, packaging: 'slim' }).shipping).toBe(0)   // no rate picked yet
   })
 
   it('ignores cover options on a disc-only order', () => {
@@ -245,7 +255,7 @@ describe('onCheckoutRequestCreated — cd_order reorders', () => {
 
   beforeEach(async () => {
     created = []
-    for (const name of ['quoteRequests', 'checkoutRequests']) {
+    for (const name of ['quoteRequests', 'checkoutRequests', 'shippingRequests']) {
       const snap = await db.collection(name).get()
       await Promise.all(snap.docs.map(d => d.ref.delete()))
     }
@@ -272,9 +282,10 @@ describe('onCheckoutRequestCreated — cd_order reorders', () => {
   it('charges no setup fee, keeps the rate, and locks files and options to the source', async () => {
     await seedSource(30)
     // The client tries to upgrade to a jewel case at the old disc-only rate.
+    await seedQuote(db, { kind: 'cd', qty: 20, packaging: 'jewel' })
     await db.doc('quoteRequests/re1').set({
       uid: 'u1', email: 'band@example.com', qty: 20, packaging: 'jewel', delivery: 'pickup',
-      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid',
+      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid', ...SHIP,
     })
     const req = await runCheckout('re1')
     expect(req.status).toBe('ready')
@@ -292,9 +303,10 @@ describe('onCheckoutRequestCreated — cd_order reorders', () => {
 
   it('refuses a reorder after the 6-month window', async () => {
     await seedSource(200)
+    await seedQuote(db, { kind: 'cd', qty: 20, packaging: 'sleeve' })
     await db.doc('quoteRequests/re2').set({
       uid: 'u1', email: 'band@example.com', qty: 20, packaging: 'sleeve', delivery: 'pickup',
-      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid',
+      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid', ...SHIP,
     })
     const req = await runCheckout('re2')
     expect(req.status).toBe('error')
@@ -303,9 +315,10 @@ describe('onCheckoutRequestCreated — cd_order reorders', () => {
 
   it("refuses a reorder of someone else's project", async () => {
     await seedSource(30, { uid: 'someoneElse' })
+    await seedQuote(db, { kind: 'cd', qty: 20, packaging: 'sleeve' })
     await db.doc('quoteRequests/re3').set({
       uid: 'u1', email: 'band@example.com', qty: 20, packaging: 'sleeve', delivery: 'pickup',
-      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid',
+      reorderOf: 'src', status: 'pending_payment', paymentStatus: 'unpaid', ...SHIP,
     })
     expect((await runCheckout('re3')).status).toBe('error')
     expect(created).toHaveLength(0)
@@ -328,7 +341,27 @@ describe('cdParcels', () => {
   })
 })
 
-describe('onCheckoutRequestCreated — flat shipping', () => {
+describe('cart package weights', () => {
+  it('falls back to a typical weight per type and never ships anything weightless', async () => {
+    const { itemPackedOz, MIN_ITEM_OZ, TYPE_WEIGHT_OZ } = await import('../functions/shippingCalc.mjs')
+    expect(itemPackedOz({ type: 'Vinyl' })).toBe(TYPE_WEIGHT_OZ.Vinyl)
+    expect(itemPackedOz({ type: 'CDs', weightOz: '' })).toBe(TYPE_WEIGHT_OZ.CDs)
+    expect(itemPackedOz({ weightOz: '0.1' })).toBe(MIN_ITEM_OZ)
+    expect(itemPackedOz({ weightOz: 160 })).toBe(160)
+  })
+
+  it('ships records in an LP mailer and splits heavy orders under the weight cap', async () => {
+    const { cartParcels, MAX_PARCEL_LB } = await import('../functions/shippingCalc.mjs')
+    const lp = cartParcels([{ product: { type: 'Vinyl' }, qty: 2 }])
+    expect(lp).toHaveLength(1)
+    expect(lp[0].length).toBe(13.5)
+    const heavy = cartParcels([{ product: { weightOz: 160 }, qty: 6 }])   // 60 lb of art
+    expect(heavy.length).toBeGreaterThan(1)
+    for (const b of heavy) expect(b.weight).toBeLessThanOrEqual(MAX_PARCEL_LB)
+  })
+})
+
+describe('onCheckoutRequestCreated — live shipping rates', () => {
   let admin, db, fns, created
 
   beforeAll(async () => {
@@ -345,7 +378,7 @@ describe('onCheckoutRequestCreated — flat shipping', () => {
 
   beforeEach(async () => {
     created = []
-    for (const name of ['quoteRequests', 'checkoutRequests', 'orders', 'products']) {
+    for (const name of ['quoteRequests', 'checkoutRequests', 'orders', 'products', 'shippingRequests']) {
       const snap = await db.collection(name).get()
       await Promise.all(snap.docs.map(d => d.ref.delete()))
     }
@@ -358,40 +391,66 @@ describe('onCheckoutRequestCreated — flat shipping', () => {
     return (await ref.get()).data()
   }
 
-  it('charges a CD order the flat US rate and has Stripe collect a US address', async () => {
+  it('charges a CD order the quoted rate and keeps the quoted address and service', async () => {
+    await seedQuote(db, { kind: 'cd', qty: 200, packaging: 'jewel' })
     await db.doc('quoteRequests/o1').set({
       uid: 'u1', email: 'band@example.com', name: 'Band', qty: 200, packaging: 'jewel', panelCount: 4,
-      delivery: 'ship', status: 'pending_payment', paymentStatus: 'unpaid',
+      status: 'pending_payment', paymentStatus: 'unpaid', ...SHIP,
+      shippingAddress: { ...SHIP_TO, street1: 'forged' },
     })
     expect((await run({ type: 'cd_order', orderId: 'o1', uid: 'u1' })).status).toBe('ready')
-    const ship = created[0].line_items.find(l => /deposit/i.test(l.price_data.product_data.name))
-    expect(ship).toBeTruthy()   // 200 discs → deposit order, single line
     const o = (await db.doc('quoteRequests/o1').get()).data()
-    expect(o.totalCents).toBe(priceCdOrder({ qty: 200, packaging: 'jewel', panelCount: 4, delivery: 'ship' }).total)
-    expect(created[0].shipping_address_collection).toEqual({ allowed_countries: ['US'] })
+    expect(o.totalCents).toBe(priceCdOrder({ qty: 200, packaging: 'jewel', panelCount: 4 }, { shippingCents: 1234 }).total)
+    expect(o.shippingCents).toBe(1234)
+    expect(o.shippingAddress.street1).toBe('1 Main St')
+    expect(o.shippingService.token).toBe('ups_ground')
+    expect(created[0].shipping_address_collection).toBeUndefined()
   })
 
-  it('charges a shop order $5 shipping no matter what the browser sends', async () => {
+  it("refuses a CD order with no quote, someone else's quote, or a quote for another quantity", async () => {
+    const base = { uid: 'u1', email: 'b@example.com', qty: 20, packaging: 'slim', status: 'pending_payment', paymentStatus: 'unpaid' }
+    await db.doc('quoteRequests/n1').set(base)
+    expect((await run({ type: 'cd_order', orderId: 'n1', uid: 'u1' })).status).toBe('error')
+    await seedQuote(db, { kind: 'cd', qty: 20, packaging: 'slim' }, { uid: 'other' })
+    await db.doc('quoteRequests/n2').set({ ...base, ...SHIP })
+    expect((await run({ type: 'cd_order', orderId: 'n2', uid: 'u1' })).status).toBe('error')
+    await seedQuote(db, { kind: 'cd', qty: 50, packaging: 'slim' })
+    await db.doc('quoteRequests/n3').set({ ...base, ...SHIP })
+    expect((await run({ type: 'cd_order', orderId: 'n3', uid: 'u1' })).status).toBe('error')
+    expect(created).toHaveLength(0)
+  })
+
+  it('charges a shop order the quoted rate, whatever the browser sends, and records it', async () => {
     await db.doc('products/p1').set({ name: 'Enigma', price: 15, category: 'Physical Media' })
     await db.doc('orders/ord1').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
+    await seedQuote(db, { kind: 'cart', itemsKey: 'p1×1' })
     await run({
       type: 'order', uid: 'u1', orderId: 'ord1', customerEmail: 'b@example.com',
       items: [{ id: 'p1', name: 'Enigma', price: 1, qty: 1 }],
-      shippingMethod: 'ship', shippingCost: 0, taxAmount: 1.05,
+      shippingMethod: 'ship', shippingCost: 0, taxAmount: 1.05, ...SHIP,
     })
     const lines = created[0].line_items
     expect(lines.find(l => l.price_data.product_data.name === 'Enigma').price_data.unit_amount).toBe(1500)
-    expect(lines.find(l => /Shipping/.test(l.price_data.product_data.name)).price_data.unit_amount).toBe(500)
+    const ship = lines.find(l => /^Shipping/.test(l.price_data.product_data.name))
+    expect(ship.price_data.unit_amount).toBe(1234)
+    expect(ship.price_data.product_data.name).toBe('Shipping — UPS Ground')
+    const o = (await db.doc('orders/ord1').get()).data()
+    expect(o).toMatchObject({ shippingCost: 12.34, shippingAddress: SHIP_TO })
   })
 
-  it('still charges shipping on a physical order that claims pickup (online only)', async () => {
+  it('refuses a physical shop order without a matching quote (even one claiming pickup)', async () => {
     await db.doc('products/p1').set({ name: 'Enigma', price: 15, category: 'Physical Media' })
     await db.doc('orders/ord2').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
-    await run({
+    expect((await run({
       type: 'order', uid: 'u1', orderId: 'ord2', customerEmail: 'b@example.com',
       items: [{ id: 'p1', name: 'Enigma', qty: 1 }], shippingMethod: 'pickup', shippingCost: 0,
-    })
-    expect(created[0].line_items.find(l => /Shipping/.test(l.price_data.product_data.name)).price_data.unit_amount).toBe(500)
+    })).status).toBe('error')
+    await seedQuote(db, { kind: 'cart', itemsKey: 'p1×1' })   // quoted for 1, ordering 2
+    expect((await run({
+      type: 'order', uid: 'u1', orderId: 'ord2', customerEmail: 'b@example.com',
+      items: [{ id: 'p1', name: 'Enigma', qty: 2 }], shippingMethod: 'ship', ...SHIP,
+    })).status).toBe('error')
+    expect(created).toHaveLength(0)
   })
 
   it('charges no shipping on a download-only order', async () => {
@@ -406,6 +465,16 @@ describe('onCheckoutRequestCreated — flat shipping', () => {
 })
 
 describe('onShippingRequestCreated', () => {
+  it('asks for the full address before quoting (no Shippo call)', async () => {
+    const admin = (await import('firebase-admin')).default
+    const fns = await import('../functions/index.js')
+    const ref = admin.firestore().collection('shippingRequests').doc()
+    const data = { action: 'quote', kind: 'cd', config: { qty: 10, packaging: 'slim' }, address: { name: 'X' }, uid: 'u1', status: 'pending' }
+    await ref.set(data)
+    await fns.onShippingRequestCreated.run({ data: () => data, ref }, { params: { id: ref.id } })
+    expect((await ref.get()).data()).toMatchObject({ status: 'error', error: 'Please fill in the full shipping address.' })
+  })
+
   it('refuses to buy a label for a non-admin', async () => {
     const admin = (await import('firebase-admin')).default
     const fns = await import('../functions/index.js')
@@ -433,7 +502,9 @@ describe('firestore.rules — shippingRequests', () => {
   const owner = () => testEnv.authenticatedContext('ownerUid', { email: 'zionomari@artsaturated.com' }).firestore()
   const Q = { uid: 'buyer1', action: 'order_rates', status: 'pending' }
 
-  it('does not let a customer request rates or labels, or forge a reply', async () => {
+  it('lets a customer ask for a quote, but not order rates or labels, and never forge a reply', async () => {
+    await assertSucceeds(setDoc(doc(buyer(), 'shippingRequests/q'), { ...Q, action: 'quote' }))
+    await assertFails(setDoc(doc(buyer(), 'shippingRequests/q2'), { ...Q, action: 'quote', uid: 'someoneElse' }))
     await assertFails(setDoc(doc(buyer(), 'shippingRequests/a'), Q))
     await assertFails(setDoc(doc(buyer(), 'shippingRequests/b'), { ...Q, action: 'buy_label' }))
     await assertFails(setDoc(doc(buyer(), 'shippingRequests/c'), { ...Q, result: { rates: [] } }))
@@ -458,13 +529,13 @@ describe('test press promo', () => {
     expect(JSON.stringify(CD_PROMOS)).not.toMatch(/TESTPRESS"/)
   })
 
-  it('prices 25–50 disc-only at $2 all-in: no setup fee, tax included, $5 shipping', () => {
+  it('prices 25–50 disc-only at $2 all-in: no setup fee, tax included, plus the shipping rate', () => {
     for (const qty of [25, 40, 50]) {
-      const p = priceCdOrder({ qty, packaging: 'sleeve' }, { promo })
+      const p = priceCdOrder({ qty, packaging: 'sleeve' }, { promo, shippingCents: 900 })
       expect(p.promoId).toBe('testpress')
       expect(p.setupFee).toBe(0)
       expect(p.tax).toBe(0)
-      expect(p.total).toBe(qty * 200 + CD_PRICING.shippingFlat)
+      expect(p.total).toBe(qty * 200 + 900)
       expect(p.isDeposit).toBe(false)   // 50 discs still pays in full
       expect(p.taxIncluded).toBe(Math.round(qty * 200 - (qty * 200) / 1.07))
     }
@@ -499,16 +570,17 @@ describe('onCheckoutRequestCreated — test press promo', () => {
 
   beforeEach(async () => {
     created = []
-    for (const name of ['quoteRequests', 'checkoutRequests']) {
+    for (const name of ['quoteRequests', 'checkoutRequests', 'shippingRequests']) {
       const snap = await db.collection(name).get()
       await Promise.all(snap.docs.map(d => d.ref.delete()))
     }
   })
 
   async function order(extra) {
+    await seedQuote(db, { kind: 'cd', qty: extra.qty ?? 30, packaging: extra.packaging ?? 'sleeve' })
     await db.doc('quoteRequests/tp1').set({
       uid: 'u1', email: 'band@example.com', name: 'Band', qty: 30, packaging: 'sleeve',
-      status: 'pending_payment', paymentStatus: 'unpaid', ...extra,
+      status: 'pending_payment', paymentStatus: 'unpaid', ...SHIP, ...extra,
     })
     const ref = db.collection('checkoutRequests').doc()
     const data = { type: 'cd_order', orderId: 'tp1', uid: 'u1' }
@@ -517,7 +589,7 @@ describe('onCheckoutRequestCreated — test press promo', () => {
     return (await ref.get()).data()
   }
 
-  it('charges $2 a disc with no setup or tax lines, plus $5 shipping', async () => {
+  it('charges $2 a disc with no setup or tax lines, plus the shipping rate', async () => {
     expect((await order({ promoCode: 'testpress' })).status).toBe('ready')
     const names = created[0].line_items.map(l => l.price_data.product_data.name)
     expect(names).not.toContain('Setup fee')
@@ -527,9 +599,9 @@ describe('onCheckoutRequestCreated — test press promo', () => {
     expect(discs.price_data.unit_amount).toBe(200)
     expect(discs.quantity).toBe(30)
     const total = created[0].line_items.reduce((t, l) => t + l.price_data.unit_amount * l.quantity, 0)
-    expect(total).toBe(30 * 200 + 500)
+    expect(total).toBe(30 * 200 + 1234)
     const o = (await db.doc('quoteRequests/tp1').get()).data()
-    expect(o).toMatchObject({ promoId: 'testpress', totalCents: 6500, perDiscCents: 200 })
+    expect(o).toMatchObject({ promoId: 'testpress', totalCents: 7234, perDiscCents: 200 })
   })
 
   it('refuses a bad code or an order the promo does not cover', async () => {

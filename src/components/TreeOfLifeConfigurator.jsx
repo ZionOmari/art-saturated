@@ -139,7 +139,7 @@ export default function TreeOfLifeConfigurator() {
       {/* ── Shipping notice ──────────────────────────────── */}
       {withPlant !== null && (
         <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#2a1a0e', marginBottom: '24px', letterSpacing: '0.08em' }}>
-          ↳ Ships in the US — flat $5 shipping at checkout
+          ↳ Ships in the US — live shipping rates at checkout
         </p>
       )}
 

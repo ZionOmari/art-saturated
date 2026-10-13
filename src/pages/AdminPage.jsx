@@ -1674,7 +1674,8 @@ function StoreConfigPanel() {
       <div>
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-2">Shipping</p>
         <p className="font-mono text-[11px] text-warm-gray mb-4">
-          Flat $5 per order in the US (shop and CD printing). Outside the US is by inquiry.
+          Live carrier rates (Shippo) by packed weight, picked by the customer at checkout, for the shop and CD printing.
+          Products without a weight use a typical weight for their type, so add weights for accurate rates. Outside the US is by inquiry.
         </p>
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-2">Ship-from (return) address</p>
         <p className="font-mono text-[11px] text-warm-gray mb-3">

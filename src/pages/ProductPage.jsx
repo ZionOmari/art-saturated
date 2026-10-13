@@ -571,7 +571,7 @@ export default function ProductPage() {
               <div className="border border-warm-gray-light px-4 py-3 mb-6">
                 <p className="font-mono text-[11px] tracking-[0.08em] text-warm-gray">
                   🚚 Ships in <strong className="text-ink">3–7 business days</strong>
-                  {' '}· <strong className="text-ink">$5 flat shipping</strong> in the US
+                  {' '}· <strong className="text-ink">shipping by weight</strong>, live rates at checkout
                 </p>
                 <p className="font-mono text-[10px] text-warm-gray mt-1">
                   Online only · outside the US, message us for a quote

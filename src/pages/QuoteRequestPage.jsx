@@ -13,6 +13,7 @@ import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
+import ShippingRates from '../components/ShippingRates'
 
 // CD printing — made to order and paid at checkout, so the customer supplies
 // everything needed to print up front and nobody has to email back and forth.
@@ -286,6 +287,37 @@ function PayExisting({ orderId }) {
   )
 }
 
+// ── Ship-to address + live rates ─────────────────────────────────────────────
+const EMPTY_ADDR = { name: '', street1: '', street2: '', city: '', state: '', zip: '', phone: '' }
+
+function ShipTo({ addr, setAddr, qty, packaging, email, value, onChange }) {
+  const f = (k, ph, extra = {}) => (
+    <input style={inp} placeholder={ph} value={addr[k]} onChange={e => setAddr(a => ({ ...a, [k]: e.target.value }))} {...extra} />
+  )
+  return (
+    <div className="flex flex-col gap-2 border border-warm-gray-light p-4">
+      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-warm-gray">Ship to (US only)</p>
+      {f('name', 'Full name', { autoComplete: 'shipping name' })}
+      {f('street1', 'Street address', { autoComplete: 'shipping address-line1' })}
+      {f('street2', 'Apt, suite (optional)', { autoComplete: 'shipping address-line2' })}
+      <div className="grid grid-cols-[1fr_70px_100px] gap-2">
+        {f('city', 'City', { autoComplete: 'shipping address-level2' })}
+        {f('state', 'State', { maxLength: 2, autoComplete: 'shipping address-level1' })}
+        {f('zip', 'ZIP', { inputMode: 'numeric', autoComplete: 'shipping postal-code' })}
+      </div>
+      {f('phone', 'Phone (for the carrier, optional)', { type: 'tel', autoComplete: 'tel' })}
+      <ShippingRates
+        address={addr}
+        request={{ kind: 'cd', config: { qty, packaging } }}
+        email={email}
+        resetKey={JSON.stringify([addr.street1, addr.street2, addr.city, addr.state, addr.zip, qty, packaging])}
+        value={value}
+        onChange={onChange}
+      />
+    </div>
+  )
+}
+
 // ── Outside-US shipping inquiry ──────────────────────────────────────────────
 // International orders aren't sold online; this opens the site's feedback
 // bubble as an inquiry (it emails the owner — notifyFeedback).
@@ -394,6 +426,8 @@ function Reorder({ sourceId }) {
   const [rush, setRush] = useState(false)
   const [agree, setAgree] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [shipAddr, setShipAddr] = useState(EMPTY_ADDR)
+  const [ship, setShip] = useState(null)
 
   useEffect(() => {
     getDoc(doc(db, 'quoteRequests', sourceId))
@@ -411,10 +445,11 @@ function Reorder({ sourceId }) {
   const w = reorderWindow(tsMs(src.paidAt))
   const rate = src.perDiscCents || priceCdOrder(src).perDisc
   const q = parseInt(qty, 10) || 0
-  const price = priceCdOrder({ ...src, qty: Math.max(1, q), delivery, rush }, { reorderRate: rate })
+  const price = priceCdOrder({ ...src, qty: Math.max(1, q), delivery, rush }, { reorderRate: rate, shippingCents: ship?.rate?.amountCents })
 
   async function submit() {
     if (q < 1) return setErr('Enter how many discs you need.')
+    if (!ship) return setErr('Get shipping rates and pick a service.')
     if (!agree) return setErr('Please agree to the terms.')
     setBusy(true); setErr('')
     try {
@@ -426,6 +461,7 @@ function Reorder({ sourceId }) {
         ...c,
         trackList: src.trackList, audioFiles: src.audioFiles, artwork: src.artwork,
         reorderOf: src.id,
+        shippingQuoteId: ship.quoteId, shippingRateId: ship.rate.objectId, shippingAddress: ship.address,
         projectId: src.projectId || src.id,
         estimatedTotal: price.total / 100,
         status: 'pending_payment',
@@ -466,7 +502,7 @@ function Reorder({ sourceId }) {
               value={qty} onChange={e => setQty(e.target.value)} aria-label="Number of discs" />
             <span className="font-mono text-[12px] text-warm-gray">discs · {fmtCents(price.perDisc)} each</span>
           </div>
-          <p className="font-mono text-[11px] text-ink">Ships within the US · {fmtCents(CD_PRICING.shippingFlat)} flat</p>
+          <ShipTo addr={shipAddr} setAddr={setShipAddr} qty={Math.max(1, q)} packaging={src.packaging} email={src.email} value={ship} onChange={setShip} />
           <InquiryLink context={`CD reorder ${src.id.slice(-6).toUpperCase()}`} />
           <TurnaroundChoice value={rush} onChange={setRush} />
           <div className="flex flex-col gap-1 font-mono text-[12px]">
@@ -474,7 +510,7 @@ function Reorder({ sourceId }) {
             <div className="flex justify-between"><span className="text-warm-gray">Setup fee</span><span className="text-earth">waived</span></div>
             {price.rushFee > 0 && <div className="flex justify-between"><span className="text-warm-gray">Rush (+{CD_PRICING.rushPct}%)</span><span>{fmtCents(price.rushFee)}</span></div>}
             <div className="flex justify-between"><span className="text-warm-gray">Indiana sales tax</span><span>{fmtCents(price.tax)}</span></div>
-            {price.shipping > 0 && <div className="flex justify-between"><span className="text-warm-gray">Shipping</span><span>{fmtCents(price.shipping)}</span></div>}
+            <div className="flex justify-between"><span className="text-warm-gray">Shipping{ship ? ` · ${ship.rate.carrier} ${ship.rate.service}` : ''}</span><span>{ship ? fmtCents(price.shipping) : 'choose a rate'}</span></div>
             <div className="flex justify-between border-t border-warm-gray-light pt-2 mt-1 text-[14px]"><span>Total</span><span className="font-medium">{fmtCents(price.total)}</span></div>
             <div className="flex justify-between text-earth"><span>{price.isDeposit ? `Due today (${CD_PRICING.depositPct}% deposit)` : 'Due today'}</span><span>{fmtCents(price.dueNow)}</span></div>
           </div>
@@ -518,6 +554,8 @@ export default function QuoteRequestPage() {
   const [promoInput,   setPromoInput]   = useState('')
   const [promo,        setPromo]        = useState(null)   // matched CD_PROMOS entry
   const [promoMsg,     setPromoMsg]     = useState('')
+  const [shipAddr,     setShipAddr]     = useState(EMPTY_ADDR)
+  const [ship,         setShip]         = useState(null)   // { quoteId, rate, address }
 
   // Release + contact
   const [info, setInfo] = useState({ name: '', email: '', phone: '', artistName: '', albumTitle: '' })
@@ -556,8 +594,8 @@ export default function QuoteRequestPage() {
 
   const qtyNum  = parseInt(qty, 10) || 0
   const price   = useMemo(
-    () => priceCdOrder({ qty: Math.max(1, qtyNum), packaging, panelCount, stock, removeCredit, delivery, rush }, { promo }),
-    [qtyNum, packaging, panelCount, stock, removeCredit, delivery, rush, promo],
+    () => priceCdOrder({ qty: Math.max(1, qtyNum), packaging, panelCount, stock, removeCredit, delivery, rush }, { promo, shippingCents: ship?.rate?.amountCents }),
+    [qtyNum, packaging, panelCount, stock, removeCredit, delivery, rush, promo, ship],
   )
 
   // Artwork slots required by the current config
@@ -613,6 +651,7 @@ export default function QuoteRequestPage() {
     if (!info.albumTitle.trim()) return 'Enter the album title as it should print.'
     if (qtyNum < 1)              return 'Enter how many discs you need.'
     if (qtyNum > CD_PRICING.maxQty) return `For more than ${CD_PRICING.maxQty} discs, email us first.`
+    if (!ship)                   return 'Enter your shipping address, get rates, and pick a service.'
     if (tracks.length === 0)     return 'Add at least one track.'
     if (tracks.some(t => !t.title.trim())) return 'Every track needs a title.'
     if (tracks.some(t => !t.file))         return 'Every track needs an audio file.'
@@ -663,6 +702,7 @@ export default function QuoteRequestPage() {
         albumTitle: info.albumTitle.trim(),
         ...c,
         ...(price.promoId ? { promoCode: normalizePromoCode(promoInput) } : {}),
+        shippingQuoteId: ship.quoteId, shippingRateId: ship.rate.objectId, shippingAddress: ship.address,
         trackList:  tracks.map(t => t.title.trim()),
         audioFiles,
         artwork,
@@ -757,7 +797,7 @@ export default function QuoteRequestPage() {
             <p className="font-mono text-[10px] text-warm-gray">
               Volume discount: {CD_PRICING.volume.map(v => `${v.pct}% off at ${v.min}+`).join(' · ')}
             </p>
-            <p className="font-mono text-[11px] text-ink">Ships within the US · {fmtCents(CD_PRICING.shippingFlat)} flat</p>
+            <ShipTo addr={shipAddr} setAddr={setShipAddr} qty={Math.max(1, qtyNum)} packaging={packaging} email={info.email} value={ship} onChange={setShip} />
             <InquiryLink context="CD printing" />
             {price.promoId
               ? <p className="font-mono text-[11px] text-warm-gray">{price.promoLabel} orders use standard turnaround (7–14 days).</p>
@@ -864,9 +904,10 @@ export default function QuoteRequestPage() {
               <div className="flex justify-between"><span className="text-warm-gray">Rush, under {CD_PRICING.rushDays} days (+{CD_PRICING.rushPct}%)</span><span className="text-ink">{fmtCents(price.rushFee)}</span></div>
             )}
             <div className="flex justify-between"><span className="text-warm-gray">Indiana sales tax ({Math.round(CD_PRICING.taxRate * 100)}%)</span><span className="text-ink">{price.promoId ? 'included' : fmtCents(price.tax)}</span></div>
-            {price.shipping > 0 && (
-              <div className="flex justify-between"><span className="text-warm-gray">Shipping (US flat rate)</span><span className="text-ink">{fmtCents(price.shipping)}</span></div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-warm-gray">Shipping{ship ? ` · ${ship.rate.carrier} ${ship.rate.service}` : ''}</span>
+              <span className="text-ink">{ship ? fmtCents(price.shipping) : 'choose a rate'}</span>
+            </div>
             <div className="flex justify-between border-t border-warm-gray-light pt-2 mt-1 text-[14px]">
               <span className="text-ink">Total</span><span className="text-ink font-medium">{fmtCents(price.total)}</span>
             </div>

@@ -39,9 +39,9 @@ export const CD_PRICING = {
     { min: 100, pct: 15 },
   ],
 
-  // Flat US shipping, an estimate: the owner messages the customer if an
-  // order costs much more to ship. Outside the US is by inquiry only.
-  shippingFlat: 500,
+  // Shipping is a live carrier rate (Shippo) the customer picks at checkout,
+  // priced from the packed weight (cdParcels below). US only; outside the US
+  // is by inquiry.
 
   // Rush: ready in under rushDays instead of the standard 7–14. Charged as a
   // percentage of production (discs + setup fee), not shipping.
@@ -125,11 +125,15 @@ export function normalizeCdConfig(raw = {}) {
 
 // Itemised price for a config. Returns cents throughout.
 //
+// opts.shippingCents: the chosen carrier rate, in cents (the checkout function
+// passes the server-verified amount; the page passes the rate it shows).
 // opts.reorderRate: the per-disc rate (cents) of the run being reordered. When
 // set, the setup fee is waived and the per-disc price is capped at that rate.
 // opts.promo: a promo from CD_PROMOS (already matched by code). If it fits the
 // config the order is priced all-in at the promo rate; otherwise it's ignored
 // and promoProblem says why.
+const shippingOf = opts => Math.max(0, Math.round(Number(opts.shippingCents) || 0))
+
 export function priceCdOrder(raw, opts = {}) {
   const c = normalizeCdConfig(raw)
   const P = CD_PRICING
@@ -139,7 +143,7 @@ export function priceCdOrder(raw, opts = {}) {
     const pr = opts.promo
     const cfg = { ...c, rush: false }
     const discsTotal = pr.perDiscAllIn * cfg.qty
-    const shipping = P.shippingFlat
+    const shipping = shippingOf(opts)
     const total = discsTotal + shipping
     return {
       config: cfg,
@@ -185,7 +189,7 @@ export function priceCdOrder(raw, opts = {}) {
   const rushFee = c.rush ? Math.round((setupFee + discsTotal) * P.rushPct / 100) : 0
   const subtotal = setupFee + discsTotal + rushFee
   const tax = Math.round(subtotal * P.taxRate)
-  const shipping = c.delivery === 'ship' ? P.shippingFlat : 0
+  const shipping = shippingOf(opts)
   const total = subtotal + tax + shipping
 
   const isDeposit = c.qty >= P.depositThreshold
