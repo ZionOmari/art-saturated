@@ -611,3 +611,144 @@ describe('onCheckoutRequestCreated — test press promo', () => {
     expect(created).toHaveLength(0)
   })
 })
+
+// ── Artists ship their own pieces ────────────────────────────────────────────
+describe('artist shipping', () => {
+  let admin, db, fns, created, sentMail
+
+  beforeAll(async () => {
+    admin = (await import('firebase-admin')).default
+    fns = await import('../functions/index.js')
+    db = admin.firestore()
+    sentMail = fns.__sentMail
+    fns.__setStripeStub({
+      checkout: { sessions: {
+        create: async (params) => { created.push(params); return { id: 'cs_stub', url: 'https://stripe.test/pay' } },
+        listLineItems: async () => ({ data: [] }),
+      } },
+    })
+  })
+
+  beforeEach(async () => {
+    created = []
+    sentMail.length = 0
+    for (const name of ['orders', 'products', 'checkoutRequests', 'shippingRequests', 'stripeSessions', 'users']) {
+      const snap = await db.collection(name).get()
+      await Promise.all(snap.docs.map(d => d.ref.delete()))
+    }
+  })
+
+  it('ships owner-listed work from the store and seller uploads from the artist', async () => {
+    const { originOf } = await import('../functions/shippingCalc.mjs')
+    expect(originOf({ source: 'admin_form', artistUid: 'amira' })).toBe('store')
+    expect(originOf({ source: 'seller_upload', sellerId: 'amira' })).toBe('amira')
+    expect(originOf({})).toBe('store')
+  })
+
+  it('splits a mixed cart into store and artist shipments and lets the artist read the order', async () => {
+    await db.doc('products/s1').set({ name: 'Store LP', price: 10, category: 'Physical Media', source: 'admin_form' })
+    await db.doc('products/a1').set({ name: 'Amira print', price: 40, category: 'Art', source: 'seller_upload', sellerId: 'amira' })
+    await db.doc('orders/m1').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
+    const parts = [
+      { origin: 'store', objectId: 'r_s', carrier: 'USPS', service: 'Ground Advantage', token: 'usps_ground_advantage', amountCents: 600 },
+      { origin: 'amira', objectId: 'r_a', carrier: 'USPS', service: 'Ground Advantage', token: 'usps_ground_advantage', amountCents: 700 },
+    ]
+    await db.doc('shippingRequests/sq').set({
+      uid: 'u1', action: 'quote', status: 'ready', address: SHIP_TO,
+      result: {
+        kind: 'cart', itemsKey: 'a1×1,s1×1',
+        groups: [{ origin: 'store', itemIds: ['s1'] }, { origin: 'amira', itemIds: ['a1'] }],
+        rates: [{ objectId: 'combo:USPS|usps_ground_advantage', carrier: 'USPS', service: 'Ground Advantage', token: 'usps_ground_advantage', amountCents: 1300, parts }],
+      },
+    })
+    const ref = db.collection('checkoutRequests').doc()
+    const data = { type: 'order', uid: 'u1', orderId: 'm1', customerEmail: 'b@example.com',
+      items: [{ id: 's1', qty: 1 }, { id: 'a1', qty: 1 }], shippingMethod: 'ship',
+      shippingQuoteId: 'sq', shippingRateId: 'combo:USPS|usps_ground_advantage' }
+    await ref.set(data)
+    await fns.onCheckoutRequestCreated.run({ data: () => data, ref }, { params: { docId: ref.id } })
+    expect((await ref.get()).data().status).toBe('ready')
+
+    const o = (await db.doc('orders/m1').get()).data()
+    expect(o.sellerIds).toEqual(['amira'])
+    expect(o.shipments.map(s => [s.from, s.itemIds, s.amountCents])).toEqual([['store', ['s1'], 600], ['amira', ['a1'], 700]])
+    expect(created[0].line_items.find(l => /^Shipping/.test(l.price_data.product_data.name)).price_data.unit_amount).toBe(1300)
+  })
+
+  it('emails the artist what to ship once the order is paid', async () => {
+    await db.doc('users/amira').set({ email: 'amira@example.com', name: 'Amira' })
+    const order = {
+      uid: 'u1', email: 'b@example.com', name: 'Buyer', total: 53, status: 'pending', paymentStatus: 'paid',
+      items: [{ id: 's1', name: 'Store LP', price: 10, qty: 1 }, { id: 'a1', name: 'Amira print', price: 40, qty: 1 }],
+      shippingAddress: SHIP_TO,
+      shipments: [
+        { from: 'store', itemIds: ['s1'], carrier: 'USPS', service: 'Ground Advantage', status: 'pending' },
+        { from: 'amira', itemIds: ['a1'], carrier: 'USPS', service: 'Ground Advantage', status: 'pending' },
+      ],
+    }
+    await fns.notifyOrderPaid('m2', order)
+    const toArtist = sentMail.find(m => m.to === 'amira@example.com')
+    expect(toArtist).toBeTruthy()
+    expect(toArtist.text).toMatch(/Amira print/)
+    expect(toArtist.text).not.toMatch(/Store LP/)
+    expect(toArtist.text).toMatch(/1 Main St/)
+    // ...and nothing to an artist on an unpaid deposit
+    sentMail.length = 0
+    await fns.notifyOrderPaid('m2', { ...order, paymentStatus: 'deposit_paid' })
+    expect(sentMail.some(m => m.to === 'amira@example.com')).toBe(false)
+  })
+
+  async function artistLabel(orderId, uid) {
+    const ref = db.collection('shippingRequests').doc()
+    const data = { action: 'buy_label', kind: 'artist', orderId, uid, status: 'pending' }
+    await ref.set(data)
+    await fns.onShippingRequestCreated.run({ data: () => data, ref }, { params: { id: ref.id } })
+    return (await ref.get()).data()
+  }
+
+  it("won't buy an artist label for someone else's package, an unpaid order, or without a return address", async () => {
+    await db.doc('orders/m3').set({
+      uid: 'u1', email: 'b@example.com', paymentStatus: 'pending', shippingAddress: SHIP_TO,
+      items: [{ id: 'a1', name: 'Amira print', qty: 1 }],
+      shipments: [{ from: 'amira', itemIds: ['a1'], carrier: 'USPS', token: 'usps_ground_advantage', status: 'pending' }],
+    })
+    expect(await artistLabel('m3', 'someoneElse')).toMatchObject({ status: 'error', error: 'None of this order ships from you.' })
+    expect((await artistLabel('m3', 'amira')).error).toMatch(/hasn't been paid/)
+    await db.doc('orders/m3').update({ paymentStatus: 'paid' })
+    expect((await artistLabel('m3', 'amira')).error).toMatch(/return address/)
+  })
+})
+
+describe('firestore.rules — artist shipping', () => {
+  let testEnv
+  beforeAll(async () => {
+    const [host, port] = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':')
+    testEnv = await initializeTestEnvironment({
+      projectId: 'art-saturated-artist-ship-test',
+      firestore: { rules: readFileSync(resolve(root, 'firestore.rules'), 'utf8'), host, port: Number(port) },
+    })
+  })
+  afterAll(async () => { await testEnv?.cleanup() })
+  beforeEach(async () => { await testEnv.clearFirestore() })
+
+  const as = uid => testEnv.authenticatedContext(uid, { email: `${uid}@example.com` }).firestore()
+
+  it('keeps an artist return address private to them', async () => {
+    await assertSucceeds(setDoc(doc(as('amira'), 'users/amira/private/shipping'), { shipFrom: SHIP_TO }))
+    await assertSucceeds(getDoc(doc(as('amira'), 'users/amira/private/shipping')))
+    await assertFails(getDoc(doc(as('stranger'), 'users/amira/private/shipping')))
+    await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), 'users/amira/private/shipping')))
+  })
+
+  it('lets an artist on sellerIds read the order, but nobody else', async () => {
+    await testEnv.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), 'orders/o'), { uid: 'buyer', sellerIds: ['amira'] }))
+    await assertSucceeds(getDoc(doc(as('amira'), 'orders/o')))
+    await assertFails(getDoc(doc(as('stranger'), 'orders/o')))
+  })
+
+  it('lets a signed-in user request an artist label for themselves (the function checks ownership), nothing else', async () => {
+    await assertSucceeds(setDoc(doc(as('amira'), 'shippingRequests/a'), { uid: 'amira', action: 'buy_label', kind: 'artist', orderId: 'o', status: 'pending' }))
+    await assertFails(setDoc(doc(as('amira'), 'shippingRequests/b'), { uid: 'amira', action: 'buy_label', kind: 'order', orderId: 'o', status: 'pending' }))
+    await assertFails(setDoc(doc(as('amira'), 'shippingRequests/c'), { uid: 'someoneElse', action: 'buy_label', kind: 'artist', orderId: 'o', status: 'pending' }))
+  })
+})

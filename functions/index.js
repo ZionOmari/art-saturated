@@ -503,12 +503,26 @@ exports.onCheckoutRequestCreated = functions
           },
           quantity: 1,
         })
-        // Record what was actually charged and where it's going.
+        // Record what was actually charged, where it's going, and who ships
+        // which items: one shipment per origin (store or artist). Artists in
+        // sellerIds can read the order and buy the label for their package.
         if (orderId) {
+          const groups = v.groups || []
+          const shipments = (v.rate.parts || [{ origin: 'store', ...v.rate }]).map(p => ({
+            from:        p.origin,
+            itemIds:     (groups.find(g => g.origin === p.origin) || {}).itemIds || physical.map(i => i.id),
+            carrier:     p.carrier,
+            service:     p.service,
+            token:       p.token,
+            amountCents: p.amountCents,
+            status:      'pending',
+          }))
           await admin.firestore().doc(`orders/${orderId}`).update({
             shippingCost:    v.rate.amountCents / 100,
             shippingService: { carrier: v.rate.carrier, service: v.rate.service, token: v.rate.token, days: v.rate.days },
             shippingAddress: v.address,
+            shipments,
+            sellerIds:       [...new Set(shipments.map(s => s.from).filter(f => f !== 'store'))],
           }).catch(e => console.error('order shipping update failed:', e.message))
         }
       }
@@ -1289,6 +1303,34 @@ async function notifyOrderPaid(orderId, order) {
     ).catch(e => console.error('Download failure alert failed:', e.message))
   }
 
+  // Artists who ship their own pieces: tell each one what to send and where.
+  // Paid orders only — a deposit isn't a sale yet.
+  const artistShipments = isDeposit ? [] : (order.shipments || []).filter(s => s.from && s.from !== 'store')
+  for (const s of artistShipments) {
+    try {
+      const seller = (await admin.firestore().doc(`users/${s.from}`).get()).data() || {}
+      if (!seller.email) continue
+      const theirItems = (order.items || []).filter(i => (s.itemIds || []).includes(i.id))
+      const a = order.shippingAddress || {}
+      await sendEmail(seller.email, `You sold a piece — please ship it (order ${ref})`, fmtEmail(seller.name, [
+        'Your work just sold on Art Saturated!',
+        '',
+        itemList(theirItems),
+        '',
+        'Ship to:',
+        `  ${a.name || ''}`,
+        `  ${[a.street1, a.street2].filter(Boolean).join(', ')}`,
+        `  ${a.city || ''}, ${a.state || ''} ${a.zip || ''}`,
+        '',
+        `The buyer paid for ${s.carrier} ${s.service}. Buy and print the label from your account —`,
+        'it uses your return address, and the buyer gets the tracking number automatically:',
+        `${CLIENT_URL}/account`,
+        '',
+        'Please ship within 3 business days.',
+      ])).catch(e => console.error('Seller ship email failed:', e.message))
+    } catch (e) { console.error('Seller ship email lookup failed:', e.message) }
+  }
+
   await sendEmail(OWNER_EMAIL,
     `New Order ${ref} — ${order.shippingMethod === 'pickup' ? 'Pickup' : 'Ship Required'}`,
     [
@@ -1298,6 +1340,10 @@ async function notifyOrderPaid(orderId, order) {
       `Email: ${order.email}`,
       `Phone: ${order.phone || 'Not provided'}`,
       `Fulfilment: ${order.shippingMethod || 'ship'}`,
+      ...((order.shipments || []).length > 1 || artistShipments.length
+        ? ['', 'Shipments:', ...(order.shipments || []).map(s =>
+            `  ${s.from === 'store' ? 'You ship' : 'Artist ships'}: ${(order.items || []).filter(i => (s.itemIds || []).includes(i.id)).map(i => i.name).join(', ')} — ${s.carrier} ${s.service}`)]
+        : []),
       '',
       itemList(order.items),
       '',
@@ -1353,7 +1399,11 @@ exports.onOrderStatusChanged = functions.firestore
       ).catch(console.error)
     }
 
-    if (after.status === 'shipped') {
+    // Packages bought through the site already emailed their own tracking
+    // (recordShipment); this generic email covers everything else, e.g. an
+    // order marked shipped by hand.
+    const allTracked = (after.shipments || []).length > 0 && after.shipments.every(s => s.trackingNumber)
+    if (after.status === 'shipped' && !allTracked) {
       await sendEmail(after.email,
         `Your Order Has Shipped — #${orderId.slice(-6).toUpperCase()}`,
         fmtEmail(after.name, [
@@ -1674,30 +1724,111 @@ async function buyRate(rateObjectId) {
   return t
 }
 
+// Parcels for some of an order's items, from their product records.
+async function parcelsForItems(order, itemIds) {
+  const { cartParcels } = await import('./shippingCalc.mjs')
+  const lines = []
+  for (const it of (order.items || []).filter(i => !itemIds || itemIds.includes(i.id))) {
+    const p = it.id ? await admin.firestore().doc(`products/${it.id}`).get() : null
+    const product = p?.exists ? p.data() : it
+    if (product.downloadPath) continue
+    lines.push({ product, qty: Number(it.qty) || 1 })
+  }
+  if (!lines.length) throw new Error('Nothing in this shipment needs a label.')
+  return cartParcels(lines)
+}
+
+// The store's package on an order (older orders, before per-origin
+// shipments, are one store package holding everything).
+const storeShipmentIndex = order => (order.shipments || []).findIndex(s => s.from === 'store')
+
 async function shopOrderRates(orderId) {
   const orderSnap = await admin.firestore().doc(`orders/${orderId}`).get()
   if (!orderSnap.exists) throw new Error('Order not found.')
   const order = orderSnap.data()
   if (!order.shippingAddress) throw new Error('No shipping address on this order.')
+  const idx = storeShipmentIndex(order)
+  if (order.shipments?.length && idx < 0) throw new Error('Everything on this order ships from the artist — they buy the label from their account.')
 
-  const weightOz = (order.items || []).reduce((s, i) => s + (Number(i.weightOz) || 2) * (Number(i.qty) || 1), 0)
-  const shipment = await createShipment(toShippoAddress(order.shippingAddress, order.email), [{
-    length: '12', width: '9', height: '6', distance_unit: 'in',
-    weight: Math.max(weightOz / 16, 0.1).toFixed(3), mass_unit: 'lb',
-  }])
+  const shipment = await createShipment(
+    toShippoAddress(order.shippingAddress, order.email),
+    await parcelsForItems(order, idx >= 0 ? order.shipments[idx].itemIds : null),
+  )
   return simplifyRates(shipment)
+}
+
+// Marks one package shipped, emails the buyer its tracking, and marks the
+// whole order shipped once every package is out.
+async function recordShipment(orderId, order, idx, t, carrier) {
+  const ref = admin.firestore().doc(`orders/${orderId}`)
+  const tracking = { trackingNumber: t.tracking_number || '', trackingUrl: t.tracking_url_provider || '', labelUrl: t.label_url || '', carrier: t.provider || carrier || '' }
+  const shipments = (order.shipments || []).map((s, i) => i === idx ? { ...s, ...tracking, status: 'shipped', shippedAt: new Date().toISOString() } : s)
+  const allOut = shipments.length ? shipments.every(s => s.status === 'shipped') : true
+  await ref.update({
+    ...(shipments.length ? { shipments } : tracking),
+    ...(allOut ? { status: 'shipped', shippedAt: FieldValue.serverTimestamp(), ...(shipments.length ? {} : tracking) } : {}),
+  })
+  // Orders with per-origin shipments get one tracking email per package here;
+  // onOrderStatusChanged skips its generic "shipped" email for them.
+  if (shipments.length) {
+    const s = shipments[idx]
+    const items = (order.items || []).filter(i => (s.itemIds || []).includes(i.id))
+    await sendEmail(order.email, `Shipped — ${items.map(i => i.name).join(', ').slice(0, 80)}`, fmtEmail(order.name, [
+      shipments.length > 1 ? 'Part of your order is on its way:' : 'Your order is on its way:',
+      '',
+      itemList(items),
+      '',
+      `${tracking.carrier} tracking: ${tracking.trackingNumber}`,
+      tracking.trackingUrl,
+      ...(shipments.length > 1 && !allOut ? ['', 'The rest ships separately — you\'ll get its tracking too.'] : []),
+    ].filter(l => l !== undefined))).catch(e => console.error('Shipment email failed:', e.message))
+  }
 }
 
 async function buyShopLabel(orderId, rateObjectId) {
   if (!rateObjectId) throw new Error('Pick a rate first.')
+  const snap = await admin.firestore().doc(`orders/${orderId}`).get()
+  if (!snap.exists) throw new Error('Order not found.')
+  const order = snap.data()
   const t = await buyRate(rateObjectId)
-  await admin.firestore().doc(`orders/${orderId}`).update({
-    status:         'shipped',
-    trackingNumber: t.tracking_number || '',
-    labelUrl:       t.label_url || '',
-    carrier:        t.provider || '',
-    shippedAt:      FieldValue.serverTimestamp(),
+  await recordShipment(orderId, order, storeShipmentIndex(order), t)
+  return { trackingNumber: t.tracking_number, labelUrl: t.label_url }
+}
+
+// An artist buys the label for their own package on a paid order. Their
+// private return address; Art Saturated's Shippo account (the buyer paid the
+// shipping at checkout); the service the buyer chose, or the cheapest left.
+async function buyArtistLabel(orderId, uid) {
+  const snap = await admin.firestore().doc(`orders/${orderId}`).get()
+  if (!snap.exists) throw new Error('Order not found.')
+  const order = snap.data()
+  const idx = (order.shipments || []).findIndex(s => s.from === uid)
+  if (idx < 0) throw new Error('None of this order ships from you.')
+  const s = order.shipments[idx]
+  if (!['paid'].includes(order.paymentStatus)) throw new Error('This order hasn\'t been paid yet.')
+  if (s.status === 'shipped' || s.labelUrl) throw new Error('You already bought the label for this one.')
+  if (!order.shippingAddress) throw new Error('This order has no shipping address.')
+
+  const from = await originAddress(uid)   // throws if the artist has no return address
+  const shipment = await shippoFetch('/shipments/', 'POST', {
+    address_from: from,
+    address_to:   toShippoAddress(order.shippingAddress, order.email),
+    parcels:      await parcelsForItems(order, s.itemIds),
+    async: false,
   })
+  const rates = simplifyRates(shipment)
+  const rate = rates.find(r => r.carrier === s.carrier && r.token === s.token)
+    || rates.find(r => r.carrier === s.carrier)
+    || rates[0]
+  if (!rate) throw new Error('No carrier rate is available for this address right now. Try again later.')
+
+  const t = await buyRate(rate.objectId)
+  await recordShipment(orderId, order, idx, t, rate.carrier)
+  if (rate.amountCents > (s.amountCents || 0) * 1.25) {
+    await sendEmail(OWNER_EMAIL, `Artist label cost more than quoted — order #${orderId.slice(-6).toUpperCase()}`,
+      `An artist bought a ${rate.carrier} ${rate.service} label for $${(rate.amountCents / 100).toFixed(2)}; the buyer paid $${((s.amountCents || 0) / 100).toFixed(2)} for that package.`,
+    ).catch(() => {})
+  }
   return { trackingNumber: t.tracking_number, labelUrl: t.label_url }
 }
 
@@ -1752,14 +1883,18 @@ async function customerQuote(data) {
   for (const k of ['name', 'street1', 'city', 'state', 'zip']) {
     if (!String(a[k] || '').trim()) throw new Error('Please fill in the full shipping address.')
   }
-  let parcels, echo
+  const addressTo = { ...toShippoAddress(a, data.email), validate: true }
+
+  // One package per origin: the store, or each artist who ships their own work.
+  // groups: [{ origin, parcels, itemIds }]
+  let groups, echo
   if (data.kind === 'cd') {
     const { cdParcels, normalizeCdConfig } = await import('./cdPricing.mjs')
     const cfg = normalizeCdConfig(data.config)
-    parcels = cdParcels(cfg)
+    groups = [{ origin: 'store', parcels: cdParcels(cfg), itemIds: [] }]
     echo = { kind: 'cd', qty: cfg.qty, packaging: cfg.packaging }
   } else {
-    const { cartParcels, itemsKey } = await import('./shippingCalc.mjs')
+    const { cartParcels, itemsKey, originOf } = await import('./shippingCalc.mjs')
     const lines = []
     for (const it of (data.items || []).slice(0, 100)) {
       if (!it?.id) continue
@@ -1768,26 +1903,87 @@ async function customerQuote(data) {
       lines.push({ product: p.data(), qty: Math.max(1, Math.floor(Number(it.qty) || 1)), id: it.id })
     }
     if (!lines.length) throw new Error('Nothing in this order needs shipping.')
-    parcels = cartParcels(lines)
-    echo = { kind: 'cart', itemsKey: itemsKey(lines) }
+    const byOrigin = {}
+    for (const l of lines) (byOrigin[originOf(l.product)] ||= []).push(l)
+    groups = Object.entries(byOrigin).map(([origin, ls]) => ({ origin, parcels: cartParcels(ls), itemIds: ls.map(l => l.id) }))
+    echo = { kind: 'cart', itemsKey: itemsKey(lines), groups: groups.map(g => ({ origin: g.origin, itemIds: g.itemIds })) }
   }
 
-  let from = QUOTE_ORIGIN
-  try { from = await shipFromAddress() } catch { /* not set yet — quote from the origin ZIP */ }
-  const shipment = await shippoFetch('/shipments/', 'POST', {
-    address_from: from,
-    address_to: { ...toShippoAddress(a, data.email), validate: true },
-    parcels,
-    async: false,
-  })
-  const v = shipment.address_to?.validation_results
-  if (v && v.is_valid === false) {
-    const why = (v.messages || []).map(m => m.text).filter(Boolean).join(' ')
-    throw new Error(`We couldn't verify that address. ${why}`.trim())
+  // Rate each package from where it actually ships.
+  const perGroup = []
+  for (const g of groups) {
+    const from = await originAddress(g.origin, { forQuote: true })
+    const shipment = await shippoFetch('/shipments/', 'POST', {
+      address_from: from, address_to: addressTo, parcels: g.parcels, async: false,
+    })
+    const v = shipment.address_to?.validation_results
+    if (v && v.is_valid === false) {
+      const why = (v.messages || []).map(m => m.text).filter(Boolean).join(' ')
+      throw new Error(`We couldn't verify that address. ${why}`.trim())
+    }
+    perGroup.push({ origin: g.origin, rates: simplifyRates(shipment) })
   }
-  const rates = simplifyRates(shipment).slice(0, 8)
+  if (perGroup.some(g => !g.rates.length)) {
+    throw new Error('No carrier returned a rate for that address. Message us and we\'ll sort it out.')
+  }
+
+  const rates = combineRates(perGroup).slice(0, 8)
   if (!rates.length) throw new Error('No carrier returned a rate for that address. Message us and we\'ll sort it out.')
   return { rates, ...echo }
+}
+
+// One option per service. With a single package that's just the carrier's
+// rates. With several (store + artists), a service is offered only if every
+// package can go that way, priced as the sum; plus "cheapest for each package"
+// so there's always something to pick. Each option keeps its per-package parts,
+// which become the order's shipments.
+function combineRates(perGroup) {
+  const part = (origin, r) => ({ origin, objectId: r.objectId, carrier: r.carrier, service: r.service, token: r.token, days: r.days, amountCents: r.amountCents })
+  if (perGroup.length === 1) {
+    const g = perGroup[0]
+    return g.rates.map(r => ({ ...r, parts: [part(g.origin, r)] }))
+  }
+  const key = r => `${r.carrier}|${r.token}`
+  const options = []
+  for (const r0 of perGroup[0].rates) {
+    const parts = perGroup.map(g => {
+      const r = g.rates.find(x => key(x) === key(r0))
+      return r && part(g.origin, r)
+    })
+    if (parts.some(p => !p)) continue
+    options.push({
+      objectId: `combo:${key(r0)}`, carrier: r0.carrier, service: r0.service, token: r0.token,
+      days: Math.max(...parts.map(p => p.days || 0)) || null,
+      amountCents: parts.reduce((s, p) => s + p.amountCents, 0), currency: 'USD', parts,
+    })
+  }
+  const cheapest = perGroup.map(g => part(g.origin, g.rates[0]))
+  const cheapestTotal = cheapest.reduce((s, p) => s + p.amountCents, 0)
+  if (!options.some(o => o.amountCents <= cheapestTotal)) {
+    options.push({
+      objectId: 'combo:cheapest', carrier: 'Cheapest', service: `for each of ${perGroup.length} packages`, token: 'cheapest',
+      days: Math.max(...cheapest.map(p => p.days || 0)) || null, amountCents: cheapestTotal, currency: 'USD', parts: cheapest,
+    })
+  }
+  return options.sort((a, b) => a.amountCents - b.amountCents)
+}
+
+// Where a package ships from. 'store' → the saved ship-from address; an artist
+// uid → their private return address (users/{uid}/private/shipping). For a
+// quote, a missing address falls back to the Fort Wayne ZIP so customers can
+// still buy; a label always needs the real one.
+async function originAddress(origin, { forQuote = false } = {}) {
+  try {
+    if (origin === 'store') return await shipFromAddress()
+    const snap = await admin.firestore().doc(`users/${origin}/private/shipping`).get()
+    const from = snap.exists && snap.data().shipFrom
+    if (!from?.street1) throw new Error('This artist hasn\'t added a return address yet (Account → Artist profile → Shipping).')
+    const u = await admin.firestore().doc(`users/${origin}`).get()
+    return { country: 'US', email: u.exists ? (u.data().email || '') : '', ...from }
+  } catch (e) {
+    if (forQuote) return QUOTE_ORIGIN
+    throw e
+  }
 }
 
 // Checks a customer's chosen rate against the quote this server wrote.
@@ -1804,7 +2000,7 @@ async function verifyShippingChoice({ uid, quoteId, rateId, expect }) {
   for (const [k, v] of Object.entries(expect)) {
     if (String(q.result[k]) !== String(v)) return { error: 'Your order changed after you got shipping rates. Please get rates again.' }
   }
-  return { rate, address: q.address }
+  return { rate, address: q.address, groups: q.result.groups }
 }
 
 exports.onShippingRequestCreated = functions
@@ -1817,6 +2013,10 @@ exports.onShippingRequestCreated = functions
       let result
       if (data.action === 'quote') {
         result = await customerQuote(data)
+      } else if (data.action === 'buy_label' && data.kind === 'artist') {
+        // data.uid is the requester (rules pin it to request.auth.uid);
+        // buyArtistLabel only acts on that artist's own package.
+        result = await buyArtistLabel(data.orderId, data.uid)
       } else {
         // Everything else spends money or reads other people's orders.
         let email = null

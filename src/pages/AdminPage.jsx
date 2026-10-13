@@ -693,6 +693,16 @@ function OrdersPanel() {
                     {formatDate(order.createdAt)} · ${order.total?.toFixed(2) || '?'}
                     {order.shippingMethod === 'pickup' && <span style={{ marginLeft: '6px', color: '#b97a30' }}>· Pickup (legacy)</span>}
                   </p>
+                  {(order.shipments || []).some(s => s.from !== 'store') && (
+                    <div style={{ fontFamily: 'monospace', fontSize: '10px', color: '#8a5c3a', margin: '4px 0 0' }}>
+                      {order.shipments.map((s, i) => (
+                        <div key={i}>
+                          {s.from === 'store' ? 'You ship' : 'Artist ships'}: {(order.items || []).filter(it => (s.itemIds || []).includes(it.id)).map(it => it.name).join(', ')}
+                          {' · '}{s.carrier} {s.service}{s.trackingNumber ? ` · ✓ ${s.trackingNumber}` : ' · not shipped yet'}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
                   {[...new Set((order.items || []).map(i => i.category).filter(Boolean))].map(cat => (

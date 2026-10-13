@@ -49,6 +49,13 @@ export function cartParcels(lines) {
   }))
 }
 
+// Who ships an item: 'store' (Art Saturated), or the uid of the artist who
+// listed it themselves (source 'seller_upload'). Anything the owner listed —
+// including other artists' consigned work — ships from the store.
+export function originOf(product = {}) {
+  return product.source === 'seller_upload' && product.sellerId ? product.sellerId : 'store'
+}
+
 // Canonical form of a cart's physical items, to check a quote still matches
 // the order at checkout: sorted "id×qty" pairs.
 export const itemsKey = items =>

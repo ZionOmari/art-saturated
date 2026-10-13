@@ -12,6 +12,7 @@ import Spinner from '../components/Spinner'
 import MessageThread from '../components/MessageThread'
 import OrderThread from '../components/OrderThread'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
+import { ArtistReturnAddress, ArtistShipmentPanel } from '../components/ArtistShipping'
 
 // ── Shared input style ────────────────────────────────────────────────────────
 const inputStyle = {
@@ -485,9 +486,12 @@ function Profile() {
               ) : (
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {artSales.map(o => {
+                    // An artist sees only their own pieces — a cart can mix
+                    // several artists (each ships their own package).
+                    const mine = (o.items || []).filter(i => (i.sellerId || i.artistUid) === user.uid)
                     const artItems = isOwner
                       ? (o.items || []).filter(i => i.category === 'Art')
-                      : (o.items || [])
+                      : (mine.length ? mine : (o.items || []))
                     const artTotal = artItems.reduce((s, i) => s + (Number(i.price) * (i.qty || 1)), 0)
                     const payout   = (artTotal * 0.90).toFixed(2)
                     return (
@@ -513,6 +517,10 @@ function Profile() {
                             </li>
                           ))}
                         </ul>
+                        <ArtistShipmentPanel order={o} uid={user.uid}
+                          onShipped={(id, ship) => setSellerOrders(prev => prev.map(x => x.id === id
+                            ? { ...x, shipments: (x.shipments || []).map(sh => sh.from === user.uid ? ship : sh) }
+                            : x))} />
                       </li>
                     )
                   })}
@@ -1097,6 +1105,13 @@ function Profile() {
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
+
+          {isCreator && (
+            <>
+              <ArtistReturnAddress uid={user.uid} />
+              <hr style={{ border: 'none', borderTop: '1px solid #e8e0d4', margin: 0 }} />
+            </>
+          )}
 
           {/* Artist membership */}
           <ArtistMembershipPanel profile={profile} />

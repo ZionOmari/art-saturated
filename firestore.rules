@@ -42,6 +42,13 @@ service cloud.firestore {
                   'artistSubCurrentEnd', 'artistSubCancelAtEnd', 'artistSubSyncedAt']));
 
       allow delete: if isAdmin();
+
+      // Private per-user data that must never ride on the (often public)
+      // profile document — e.g. an artist's return address for shipping labels
+      // (private/shipping). Only the user and the admin can see it.
+      match /private/{docId} {
+        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      }
     }
     // Public wishlists — anyone can view; only the owner can write
     match /wishlists/{userId} {
@@ -58,7 +65,9 @@ service cloud.firestore {
     // reply (status/result) is written by the function, never by a client.
     match /shippingRequests/{docId} {
       allow create: if request.auth != null
-                    && (request.resource.data.action == 'quote' || isAdmin())
+                    && (request.resource.data.action == 'quote'
+                        || (request.resource.data.action == 'buy_label' && request.resource.data.kind == 'artist')
+                        || isAdmin())
                     && request.resource.data.uid == request.auth.uid
                     && request.resource.data.status == 'pending'
                     && !request.resource.data.keys().hasAny(['result', 'error']);
@@ -72,9 +81,11 @@ service cloud.firestore {
       allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
     }
     match /orders/{orderId} {
+      // sellerIds: artists shipping a package on this order (set by checkout).
       allow read: if request.auth != null &&
         (resource.data.uid      == request.auth.uid ||
          resource.data.sellerId == request.auth.uid ||
+         request.auth.uid in resource.data.get('sellerIds', []) ||
          isAdmin());
       // A buyer may only create their OWN order, and only in the unpaid/pending state.
       // The price/total fields are still client-supplied here — the checkout Cloud

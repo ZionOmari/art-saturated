@@ -259,11 +259,17 @@ export function AuthProvider({ children }) {
   // Orders where the current user is the seller (art sales dashboard).
   // Needs the composite index orders(sellerId, createdAt) — without it this
   // rejects with FAILED_PRECONDITION and the dashboard silently shows nothing.
+  // Also picks up orders where this artist ships a package (sellerIds, set by
+  // checkout) — e.g. a cart mixing their work with someone else's.
   async function fetchSellerOrders() {
     if (!user) return []
-    const q    = query(collection(db, 'orders'), where('sellerId', '==', user.uid), orderBy('createdAt', 'desc'))
-    const snap = await getDocs(q)
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const [bySeller, byShipment] = await Promise.all([
+      getDocs(query(collection(db, 'orders'), where('sellerId', '==', user.uid), orderBy('createdAt', 'desc'))),
+      getDocs(query(collection(db, 'orders'), where('sellerIds', 'array-contains', user.uid))).catch(() => ({ docs: [] })),
+    ])
+    const seen = new Map()
+    for (const d of [...bySeller.docs, ...byShipment.docs]) seen.set(d.id, { id: d.id, ...d.data() })
+    return [...seen.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
   }
 
   return (
