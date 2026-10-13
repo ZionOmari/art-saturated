@@ -215,6 +215,8 @@ export default function App() {
           <Route path="/workshop"  element={<Navigate to="/consult" replace />} />
           <Route path="/preorder/:slug" element={<Navigate to="/shop" replace />} />
           <Route path="/events/*"  element={<Navigate to="/home" replace />} />
+          {/* The one magazine article moved to Zion's artist blog (Oct 2026). */}
+          <Route path="/magazine/the-archeology-of-the-loop" element={<Navigate to="/artists/EchUTunMijUgPZrjmdfd90nvLox1?tab=blog" replace />} />
           <Route path="/magazine/*" element={<Navigate to="/home" replace />} />
           <Route path="/mystery"   element={<Navigate to="/shop" replace />} />
           <Route path="/submit-art" element={<Navigate to="/shop" replace />} />

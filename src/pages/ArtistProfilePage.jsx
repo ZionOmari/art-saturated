@@ -472,9 +472,18 @@ export default function ArtistProfilePage() {
                     <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#8a857d', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
                       {date ? date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Draft'}
                     </p>
+                    {post.coverURL && (
+                      <img src={post.coverURL} alt="" loading="lazy"
+                        style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', marginBottom: '16px', display: 'block' }} />
+                    )}
                     <h2 style={{ fontFamily: 'serif', fontSize: '1.4rem', color: '#1a1814', margin: '0 0 12px', fontWeight: 400, lineHeight: 1.3 }}>
                       {post.title}
                     </h2>
+                    {post.excerpt && (
+                      <p style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: '1rem', color: '#8a5c3a', margin: '0 0 16px', lineHeight: 1.5 }}>
+                        {post.excerpt}
+                      </p>
+                    )}
                     <div style={{ fontFamily: 'monospace', fontSize: '13px', color: '#5a3820', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
                       {post.body}
                     </div>

@@ -423,6 +423,7 @@ exports.onCheckoutRequestCreated = functions
       // ── Availability pre-check + server price capture ───────────────────
       const serverPrices     = {}   // id → verified price from Firestore
       const serverCategories = {}   // id → category string
+      let   hasPhysical      = false // anything without a downloadPath ships
       for (const item of (items || [])) {
         if (!item.id) continue
         const pSnap = await admin.firestore().collection('products').doc(item.id).get()
@@ -438,6 +439,7 @@ exports.onCheckoutRequestCreated = functions
         }
         serverPrices[item.id]     = Number(p.price)      // always use DB price, not client
         serverCategories[item.id] = p.category || ''
+        if (!p.downloadPath) hasPhysical = true
       }
 
       // Standard order — price comes from Firestore, not client payload
@@ -450,8 +452,9 @@ exports.onCheckoutRequestCreated = functions
         quantity: Number(item.qty) || 1,
       }))
 
-      // Flat US shipping, set here rather than taken from the client.
-      if (shippingMethod !== 'pickup') {
+      // Flat US shipping, set here rather than taken from the client. Online
+      // only (no pickup), so any physical item ships; download-only orders don't.
+      if (hasPhysical) {
         lineItems.push({
           price_data: {
             currency: 'usd',
@@ -1295,7 +1298,7 @@ exports.onOrderStatusChanged = functions.firestore
       await sendEmail(after.email,
         `Your Order Is Ready — #${orderId.slice(-6).toUpperCase()}`,
         fmtEmail(after.name, [
-          'Your order is ready for pickup!',
+          "Your order is packed and ready to ship. You'll get a tracking email when it's on the way.",
           '',
           itemList(after.items),
         ]),
@@ -1540,16 +1543,10 @@ exports.onCommissionMessage = functions.firestore
   })
 
 // ── Shippo: Shared helpers ────────────────────────────────────────────────────
-// Art Saturated ship-from address. Override via storeConfig.shipFromAddress.
-const DEFAULT_SHIP_FROM = {
-  name:    'Art Saturated',
-  street1: '3945 Parnell Ave',
-  city:    'Fort Wayne',
-  state:   'IN',
-  zip:     '46809',
-  country: 'US',
-  email:   OWNER_EMAIL,
-}
+// Ship-from (return) address comes from settings/storeConfig.shipFromAddress
+// ({ name, street1, street2?, city, state, zip, country, email }). There is no
+// default: Art Saturated is online only (the Parnell Ave shop closed), and a
+// label must never print an address that no longer receives returns.
 
 async function shippoFetch(path, method, body) {
   const key = process.env.SHIPPO_API_KEY
@@ -1579,7 +1576,9 @@ async function shippoFetch(path, method, body) {
 //                        customer paid for, then marks the CD order shipped
 async function shipFromAddress() {
   const configSnap = await admin.firestore().doc('settings/storeConfig').get()
-  return (configSnap.exists && configSnap.data().shipFromAddress) || DEFAULT_SHIP_FROM
+  const from = configSnap.exists && configSnap.data().shipFromAddress
+  if (!from?.street1) throw new Error('No ship-from address is set (settings/storeConfig.shipFromAddress). Add your return address before buying labels.')
+  return { country: 'US', email: OWNER_EMAIL, ...from }
 }
 
 function toShippoAddress(a = {}, email = '') {
@@ -1778,7 +1777,7 @@ async function suggestListingFields({ text, imageUrl }) {
       responseMimeType: 'application/json',
       maxOutputTokens: 512,
       temperature: 0.2,
-      systemInstruction: `You are a listing assistant for Art Saturated, an art and collectibles marketplace in Fort Wayne, Indiana.
+      systemInstruction: `You are a listing assistant for Art Saturated, an online art and collectibles marketplace based in Fort Wayne, Indiana.
 
 Given the seller's rough notes and/or a product photo, return listing details as JSON.
 
@@ -1854,7 +1853,7 @@ async function batchListingFromPhotos({ imageUrls }) {
       responseMimeType: 'application/json',
       maxOutputTokens: 2048,
       temperature: 0.2,
-      systemInstruction: `You are a cataloging assistant for Art Saturated, an art and collectibles marketplace in Fort Wayne, Indiana.
+      systemInstruction: `You are a cataloging assistant for Art Saturated, an online art and collectibles marketplace based in Fort Wayne, Indiana.
 
 You are given a batch of product photos, each prefixed with its "Photo index N". The batch usually contains MULTIPLE distinct items, often with several photos of each item (e.g. the front cover, back cover, and detail shots of the same record).
 
@@ -2367,7 +2366,6 @@ exports.notifyFeedback = functions.firestore.document('feedback/{id}').onCreate(
 // ── CD printing emails ────────────────────────────────────────────────────────
 // Orders are made to order and paid upfront, so every step the customer needs
 // to know about is emailed automatically — no manual back-and-forth.
-const SHOP_ADDRESS = '3945 Parnell Ave, Fort Wayne, IN'
 const cents = n => `$${((n || 0) / 100).toFixed(2)}`
 const cdRef = (id) => `#${String(id).slice(-6).toUpperCase()}`
 const cdPayLink = (id) => `${CLIENT_URL}/cd-printing?pay=${id}`
@@ -2379,7 +2377,7 @@ function cdSummary(o) {
     `  Discs:     ${o.qty} × ${pack}`,
     o.packaging !== 'sleeve' ? `  Cover:     ${o.panelCount}-panel, ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}${o.gloss ? ', gloss' : ''}` : '',
     `  Tracks:    ${(o.trackList || []).length}`,
-    `  Delivery:  ${o.delivery === 'ship' ? `Shipping${o.shippingService?.service ? ` — ${o.shippingService.carrier} ${o.shippingService.service}` : ''}` : `Pickup at ${SHOP_ADDRESS}`}`,
+    `  Delivery:  Shipping${o.shippingService?.service ? ` — ${o.shippingService.carrier} ${o.shippingService.service}` : ''}`,
     `  Turnaround: ${o.rush ? 'RUSH — under 7 days' : 'Standard, 7–14 days'}`,
   ].filter(Boolean)
 }
@@ -2393,9 +2391,7 @@ async function notifyCdPaid(id, o, { stage, paid, fullyPaid, amountPaidCents, to
     await sendEmail(o.email, `Paid in full — CD order ${cdRef(id)}`, fmtEmail(o.name, [
       `We received your balance of ${cents(paid)}. Your order is paid in full.`,
       '',
-      o.delivery === 'ship'
-        ? "Your CDs will ship within 2 business days. You'll get a tracking email."
-        : `Your CDs are ready for pickup at ${SHOP_ADDRESS}.`,
+      "Your CDs will ship within 2 business days. You'll get a tracking email.",
     ]))
   } else {
     await sendEmail(o.email, `CD order ${cdRef(id)} confirmed`, fmtEmail(o.name, [
@@ -2406,7 +2402,7 @@ async function notifyCdPaid(id, o, { stage, paid, fullyPaid, amountPaidCents, to
       fullyPaid ? '  Paid in full.' : `  Paid today: ${cents(paid)} · Balance ${cents(balance)} due when your CDs are ready`,
       '',
       `Your CDs will be ready in ${o.rush ? 'under 7 days (rush)' : '7–14 days'}. We print your files exactly as submitted,`,
-      `so there's nothing else you need to do. We'll email you when they're ${o.delivery === 'ship' ? 'on the way' : 'ready for pickup'}.`,
+      "so there's nothing else you need to do. We'll email you when they're on the way.",
       '',
       `Need more later? We keep your files for 6 months. Reorders in that time have no setup fee and keep your ${cents(o.perDiscCents)}/disc rate:`,
       `${CLIENT_URL}/cd-printing?reorder=${id}`,
@@ -2449,16 +2445,12 @@ exports.onQuoteRequestUpdated = functions.firestore.document('quoteRequests/{id}
             `Your remaining balance is ${cents(balance)}. Pay it here:`,
             cdPayLink(id),
             '',
-            o.delivery === 'ship'
-              ? 'They ship as soon as the balance is paid.'
-              : `Once it's paid, pick them up at ${SHOP_ADDRESS}.`,
+            'They ship as soon as the balance is paid.',
           ]
         : [
             `Your ${o.qty} CDs are done.`,
             '',
-            o.delivery === 'ship'
-              ? "They're being packed now. You'll get a tracking email when they ship."
-              : `Pick them up any time at ${SHOP_ADDRESS}.`,
+            "They're being packed now. You'll get a tracking email when they ship.",
           ]
       await sendEmail(o.email, `Your CDs are ready — ${cdRef(id)}`, fmtEmail(o.name, lines))
     }

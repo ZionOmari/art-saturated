@@ -74,11 +74,15 @@ describe('priceCdOrder', () => {
   })
 
   it('charges 7% sales tax on goods but not on shipping', () => {
-    const pickup = priceCdOrder({ qty: 10, packaging: 'slim' })
-    const ship   = priceCdOrder({ qty: 10, packaging: 'slim', delivery: 'ship' })
-    expect(pickup.tax).toBe(Math.round(pickup.subtotal * 0.07))
-    expect(ship.tax).toBe(pickup.tax)
-    expect(ship.total).toBe(pickup.total + ship.shipping)
+    const p = priceCdOrder({ qty: 10, packaging: 'slim' })
+    expect(p.tax).toBe(Math.round(p.subtotal * 0.07))
+    expect(p.total).toBe(p.subtotal + p.tax + p.shipping)
+  })
+
+  it('ships every order (online only — a pickup request is ignored)', () => {
+    const p = priceCdOrder({ qty: 10, packaging: 'slim', delivery: 'pickup' })
+    expect(p.config.delivery).toBe('ship')
+    expect(p.shipping).toBe(CD_PRICING.shippingFlat)
   })
 
   it('ignores cover options on a disc-only order', () => {
@@ -378,12 +382,22 @@ describe('onCheckoutRequestCreated — flat shipping', () => {
     expect(lines.find(l => /Shipping/.test(l.price_data.product_data.name)).price_data.unit_amount).toBe(500)
   })
 
-  it('charges no shipping on a pickup order', async () => {
+  it('still charges shipping on a physical order that claims pickup (online only)', async () => {
     await db.doc('products/p1').set({ name: 'Enigma', price: 15, category: 'Physical Media' })
     await db.doc('orders/ord2').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
     await run({
       type: 'order', uid: 'u1', orderId: 'ord2', customerEmail: 'b@example.com',
-      items: [{ id: 'p1', name: 'Enigma', qty: 1 }], shippingMethod: 'pickup', shippingCost: 5,
+      items: [{ id: 'p1', name: 'Enigma', qty: 1 }], shippingMethod: 'pickup', shippingCost: 0,
+    })
+    expect(created[0].line_items.find(l => /Shipping/.test(l.price_data.product_data.name)).price_data.unit_amount).toBe(500)
+  })
+
+  it('charges no shipping on a download-only order', async () => {
+    await db.doc('products/d1').set({ name: 'Album (download)', price: 8, category: 'Physical Media', downloadPath: 'releases/album.zip' })
+    await db.doc('orders/ord3').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
+    await run({
+      type: 'order', uid: 'u1', orderId: 'ord3', customerEmail: 'b@example.com',
+      items: [{ id: 'd1', name: 'Album (download)', qty: 1 }], shippingMethod: 'digital', shippingCost: 5,
     })
     expect(created[0].line_items.some(l => /Shipping/.test(l.price_data.product_data.name))).toBe(false)
   })

@@ -161,7 +161,7 @@ export default function ConsultPage() {
           Book a consultation.
         </h1>
         <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-12 max-w-lg">
-          Sit down with Zion one-on-one — in the shop at 3945 Parnell Ave, or remotely.
+          Meet with Zion one-on-one by video call — Art Saturated is online only.
           Bookings need at least {MIN_ADVANCE_HOURS} hours' notice.
         </p>
 

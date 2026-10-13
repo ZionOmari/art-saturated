@@ -19,7 +19,6 @@ export default function CartPage() {
   const { cart, cartTotal, updateQty, removeFromCart, clearCart, atMax, hydrateCart } = useCart()
   const { user, profile, placeOrder } = useAuth()
 
-  const [method,           setMethod]           = useState('ship')
   const [loading,          setLoading]          = useState(false)
   const [status,           setStatus]           = useState('')
   const [error,            setError]            = useState(null)
@@ -106,7 +105,11 @@ export default function CartPage() {
     return parseFloat((physMediaSubtotal * (bundleDeal.discountPct ?? 10) / 100).toFixed(2))
   }, [bundleDeal, physMediaQty, physMediaSubtotal])
 
-  const shippingCost = method === 'pickup' ? 0 : calcShipping(totalWeightOz)
+  // Art Saturated is online only — no pickup. A product with a downloadPath is
+  // delivered by email, so a download-only cart has nothing to ship.
+  const needsShipping = cart.some(i => !i.downloadPath)
+  const method       = needsShipping ? 'ship' : 'digital'
+  const shippingCost = needsShipping ? calcShipping() : 0
   const taxAmount    = parseFloat((cartTotal * TAX_RATE).toFixed(2))
   const orderTotal   = cartTotal + shippingCost + taxAmount - bundleDiscount
 
@@ -130,7 +133,7 @@ export default function CartPage() {
     setError(null)
     setStatus('Creating order…')
     try {
-      const cost    = chosenMethod === 'pickup' ? 0 : shippingCost
+      const cost    = chosenMethod === 'ship' ? shippingCost : 0
       const shipAddr = chosenMethod === 'ship' ? { ...addr, country: 'US' } : null
       const orderId = await placeOrder(cart, cartTotal, chosenMethod, cost, taxAmount, shipAddr, bundleDiscount)
       setStatus('Connecting to payment…')
@@ -241,33 +244,13 @@ export default function CartPage() {
               ))}
             </ul>
 
-            {/* ── Delivery method ─────────────────────────────────────────── */}
+            {/* ── Delivery ─────────────────────────────────────────────────── */}
             <div className="border-t border-warm-gray-light pt-6 mt-2 mb-5">
-              <p className="font-mono text-[11px] tracking-[0.12em] uppercase text-warm-gray mb-3">
-                Delivery Method
+              <p className="font-mono text-[11px] tracking-[0.12em] uppercase text-warm-gray mb-2">
+                Delivery
               </p>
-              <div className="flex gap-3">
-                {[
-                  { id: 'ship',   label: 'Ship to Me' },
-                  { id: 'pickup', label: 'Local Pickup' },
-                ].map(opt => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setMethod(opt.id)}
-                    className={`flex-1 font-mono text-[11px] tracking-[0.1em] uppercase py-3 border
-                                transition-all duration-150
-                                ${method === opt.id
-                                  ? 'bg-ink text-offwhite border-ink'
-                                  : 'border-warm-gray-light text-warm-gray bg-transparent hover:border-ink hover:text-ink'
-                                }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              <p className="font-mono text-[11px] text-warm-gray mt-2">
-                {method === 'ship' && <>
+              <p className="font-mono text-[11px] text-warm-gray">
+                {needsShipping ? <>
                   Flat ${FLAT_SHIPPING.toFixed(2)} shipping · US only · Outside the US?{' '}
                   <button type="button" className="underline text-earth"
                     onClick={() => window.dispatchEvent(new CustomEvent('as:inquiry', {
@@ -275,10 +258,7 @@ export default function CartPage() {
                     }))}>
                     Message us
                   </button>
-                </>}
-                {method === 'pickup' &&
-                  'Free local pickup · 3945 Parnell Ave, Fort Wayne IN · We\'ll contact you when ready'
-                }
+                </> : 'Digital delivery — your download link is emailed after payment.'}
               </p>
             </div>
 
@@ -391,23 +371,14 @@ export default function CartPage() {
                     Sign In / Create Account
                   </button>
                 </div>
-              ) : method === 'ship' ? (
+              ) : (
                 <button
-                  onClick={() => handleCheckout('ship')}
+                  onClick={() => handleCheckout(method)}
                   disabled={loading}
                   className="btn-ghost w-full text-center mb-3
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? <span className="flex items-center justify-center gap-2"><Spinner />{status || 'Processing…'}</span> : `Pay $${orderTotal.toFixed(2)} — Secure Checkout`}
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleCheckout('pickup')}
-                  disabled={loading}
-                  className="btn-ghost w-full text-center mb-3
-                             disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? <span className="flex items-center justify-center gap-2"><Spinner />{status || 'Processing…'}</span> : `Reserve for Pickup — Pay $${orderTotal.toFixed(2)}`}
                 </button>
               )}
 

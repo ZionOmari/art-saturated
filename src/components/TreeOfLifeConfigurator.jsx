@@ -45,7 +45,9 @@ export default function TreeOfLifeConfigurator() {
 
   const [size,       setSize]       = useState(null)
   const [color,      setColor]      = useState(null)
-  const [withPlant,  setWithPlant]  = useState(null)   // true | false | null
+  // Live plants were pickup-only. Art Saturated is online only now, so every
+  // planter ships empty and the plant option is hidden.
+  const [withPlant,  setWithPlant]  = useState(false)  // true | false | null
   const [plant,      setPlant]      = useState(null)
   const [added,      setAdded]      = useState(false)
 
@@ -69,7 +71,7 @@ export default function TreeOfLifeConfigurator() {
       details: [
         `Size: ${size}`,
         `Color: ${color}`,
-        plant ? `Plant: ${plant} (Local Pickup Only)` : 'No plant — shippable',
+        'No plant — ships empty',
       ],
     })
     showToast('Added to cart')
@@ -119,10 +121,7 @@ export default function TreeOfLifeConfigurator() {
       </p>
       <div style={{ display: 'flex', gap: '10px', marginBottom: withPlant ? '16px' : '28px', flexWrap: 'wrap' }}>
         <button style={pill(withPlant === false)} onClick={() => { setWithPlant(false); setPlant(null) }}>
-          Empty — shippable
-        </button>
-        <button style={pill(withPlant === true)} onClick={() => setWithPlant(true)}>
-          Choose Life +$5 · Local Pickup Only
+          Empty — ships to you
         </button>
       </div>
 
@@ -140,9 +139,7 @@ export default function TreeOfLifeConfigurator() {
       {/* ── Shipping notice ──────────────────────────────── */}
       {withPlant !== null && (
         <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#2a1a0e', marginBottom: '24px', letterSpacing: '0.08em' }}>
-          {canShip
-            ? '↳ Can be shipped — buyer pays shipping at checkout'
-            : '↳ Local pickup only when a plant is included'}
+          ↳ Ships in the US — flat $5 shipping at checkout
         </p>
       )}
 

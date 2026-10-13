@@ -13,7 +13,7 @@ export const CD_TERMS = [
     items: [
       'Your price is calculated from the options you choose and shown in full before checkout: per-disc cost, a one-time setup fee, Indiana sales tax (7%), and shipping if selected.',
       `Orders under ${CD_PRICING.depositThreshold} discs are paid in full at checkout.`,
-      `Orders of ${CD_PRICING.depositThreshold} or more discs pay a ${CD_PRICING.depositPct}% deposit at checkout. The balance is due when your order is ready; we email you a payment link. Discs are released or shipped only after the balance is paid.`,
+      `Orders of ${CD_PRICING.depositThreshold} or more discs pay a ${CD_PRICING.depositPct}% deposit at checkout. The balance is due when your order is ready; we email you a payment link. Discs ship only after the balance is paid.`,
       'Balances not paid within 30 days of the ready notice may be forfeited, and the deposit is not refunded.',
       'Payments are processed by Stripe. We never see or store your card details.',
     ],
@@ -39,9 +39,9 @@ export const CD_TERMS = [
     ],
   },
   {
-    title: 'Pickup & shipping',
+    title: 'Shipping',
     items: [
-      'Pickup is at 3945 Parnell Ave, Fort Wayne, IN. Please collect your order within 30 days of the ready notice.',
+      'Art Saturated is an online shop. Every order ships; there is no in-person pickup.',
       `Shipping within the US is a flat ${fmtCents(CD_PRICING.shippingFlat)} per order. It is an estimate: if a large order costs substantially more to ship, we will contact you before it ships. We are not responsible for carrier delays.`,
       'Outside the US, message us for a shipping quote before ordering.',
       'Double-check your address: packages sent to an address you entered incorrectly are re-shipped at your cost.',
@@ -52,7 +52,7 @@ export const CD_TERMS = [
     title: 'Changes, cancellations & refunds',
     items: [
       'You can cancel for a full refund until your order moves to printing. After that, orders cannot be changed, cancelled, or refunded.',
-      'If we make a mistake (a failed burn, a misprint that is not in your files, or the wrong quantity), tell us within 14 days of pickup or delivery and we will fix it at no cost.',
+      'If we make a mistake (a failed burn, a misprint that is not in your files, or the wrong quantity), tell us within 14 days of delivery and we will fix it at no cost.',
     ],
   },
   {

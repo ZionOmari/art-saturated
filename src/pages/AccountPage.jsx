@@ -532,7 +532,7 @@ function Profile() {
                   <li key={o.id} style={{ borderBottom: '1px solid #e8e0d4', paddingBottom: '16px', marginBottom: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                       <span style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: isUnpaid(o) ? 'rgb(var(--color-warm-gray))' : statusColor[o.status] || 'rgb(var(--color-warm-gray))' }}>
-                        {o.status === 'ready'   ? '✓ Ready for pickup'
+                        {o.status === 'ready'   ? '✓ Ready to ship'
                          : o.status === 'shipped' ? '⟶ Shipped'
                          : isUnpaid(o)            ? '○ Payment not completed'
                          : '⧗ Processing'}
@@ -1118,7 +1118,6 @@ function Profile() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {[
                   ['10% commission', 'on listed sales through the shop'],
-                  ['5% commission', 'if you drop off in-store'],
                   ['$7.99/month', 'membership — unlimited uploads, no per-listing fee'],
                   ['48hr review', 'every submission is personally reviewed'],
                   ['0% on commissions', 'custom work is arranged directly — no platform cut'],

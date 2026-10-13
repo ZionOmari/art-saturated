@@ -5,7 +5,7 @@
 
 const DEFAULTS = {
   title:       'Art Saturated',
-  description: 'Creative Engineering. Cultural Architecture. Handmade physical media, original art, and upcycled objects — made in store.',
+  description: 'Creative Engineering. Cultural Architecture. Handmade physical media, original art, and upcycled objects — made by hand, sold online.',
   image:       'https://artsaturated.com/og-image.jpg',
   url:         'https://artsaturated.com/',
 }

@@ -383,7 +383,7 @@ function Reorder({ sourceId }) {
   const [src,  setSrc]  = useState(null)
   const [err,  setErr]  = useState('')
   const [qty,  setQty]  = useState('')
-  const [delivery, setDelivery] = useState('pickup')
+  const delivery = 'ship'   // online only — every order ships
   const [rush, setRush] = useState(false)
   const [agree, setAgree] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -393,7 +393,7 @@ function Reorder({ sourceId }) {
       .then(s => {
         if (!s.exists()) return setErr('Order not found.')
         const o = { id: s.id, ...s.data() }
-        setSrc(o); setQty(String(o.qty || 1)); setDelivery(o.delivery || 'pickup')
+        setSrc(o); setQty(String(o.qty || 1)); 
       })
       .catch(() => setErr('This order belongs to a different account.'))
   }, [sourceId, user?.uid])
@@ -459,10 +459,7 @@ function Reorder({ sourceId }) {
               value={qty} onChange={e => setQty(e.target.value)} aria-label="Number of discs" />
             <span className="font-mono text-[12px] text-warm-gray">discs · {fmtCents(price.perDisc)} each</span>
           </div>
-          <Choice value={delivery} onChange={setDelivery} options={[
-            { key: 'pickup', label: 'Pick up', sub: 'Free · 3945 Parnell Ave, Fort Wayne' },
-            { key: 'ship',   label: 'Ship it', sub: `${fmtCents(CD_PRICING.shippingFlat)} flat · US only` },
-          ]} />
+          <p className="font-mono text-[11px] text-ink">Ships within the US · {fmtCents(CD_PRICING.shippingFlat)} flat</p>
           <InquiryLink context={`CD reorder ${src.id.slice(-6).toUpperCase()}`} />
           <TurnaroundChoice value={rush} onChange={setRush} />
           <div className="flex flex-col gap-1 font-mono text-[12px]">
@@ -508,7 +505,7 @@ export default function QuoteRequestPage() {
   const [stock,        setStock]        = useState('standard')
   const [panelCount,   setPanelCount]   = useState(4)
   const [qty,          setQty]          = useState('25')
-  const [delivery,     setDelivery]     = useState('pickup')
+  const delivery = 'ship'   // online only — every order ships
   const [removeCredit, setRemoveCredit] = useState(false)
   const [gloss,        setGloss]        = useState(false)
   const [rush,         setRush]         = useState(false)
@@ -731,7 +728,7 @@ export default function QuoteRequestPage() {
           </Section>
         )}
 
-        <Section n={printed ? 3 : 2} title="Quantity, delivery & turnaround">
+        <Section n={printed ? 3 : 2} title="Quantity, shipping & turnaround">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               <input style={{ ...inp, width: '120px' }} type="number" inputMode="numeric" min="1" max={CD_PRICING.maxQty}
@@ -744,10 +741,7 @@ export default function QuoteRequestPage() {
             <p className="font-mono text-[10px] text-warm-gray">
               Volume discount: {CD_PRICING.volume.map(v => `${v.pct}% off at ${v.min}+`).join(' · ')}
             </p>
-            <Choice value={delivery} onChange={setDelivery} options={[
-              { key: 'pickup', label: 'Pick up', sub: 'Free · 3945 Parnell Ave, Fort Wayne' },
-              { key: 'ship',   label: 'Ship it', sub: `${fmtCents(CD_PRICING.shippingFlat)} flat · US only` },
-            ]} />
+            <p className="font-mono text-[11px] text-ink">Ships within the US · {fmtCents(CD_PRICING.shippingFlat)} flat</p>
             <InquiryLink context="CD printing" />
             <TurnaroundChoice value={rush} onChange={setRush} />
           </div>

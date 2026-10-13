@@ -90,7 +90,7 @@ export function normalizeCdConfig(raw = {}) {
     stock:        printed && raw.stock === 'cardstock' ? 'cardstock' : 'standard',
     gloss:        printed && !!raw.gloss,
     removeCredit: printed && !!raw.removeCredit,
-    delivery:     raw.delivery === 'ship' ? 'ship' : 'pickup',
+    delivery:     'ship',   // online only — every order ships (no pickup)
     rush:         !!raw.rush,
   }
 }
