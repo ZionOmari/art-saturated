@@ -22,8 +22,7 @@ commit.
 - **Level 5 (product):** the core goal — *get artists uploading and take the
   leg work out of CD printing.* Known gaps: artists can't list music, CD
   printing is separate from artist uploads, artists have no page to manage
-  their own listings, the "Test Artist" QA account is public in /artists and
-  the sitemap.
+  their own listings.
 - **Level 6 (crown):** design, polish, search visibility.
 
 ### Owner-only tasks
