@@ -324,12 +324,6 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Commission inquiry form (CommissionForm.jsx) — anyone can submit; admin reads/manages
-    match /commissions/{commId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
-    }
-
     // Feedback / bug reports (FeedbackBubble.jsx) — anyone can submit; admin reads/manages
     match /feedback/{fbId} {
       allow create: if true;

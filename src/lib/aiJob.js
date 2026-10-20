@@ -10,7 +10,7 @@ import { db } from './firebase'
  * Function (a Firestore trigger — no invoker needed) fulfills it and writes the
  * result back. Mirrors the Stripe checkout pattern already used on the site.
  *
- * @param {string} type    'quickfill' | 'seo' | 'spotlight' | 'interview'
+ * @param {string} type    'discogs' | 'seo' | 'spotlight' | 'interview'
  * @param {object} payload type-specific args
  * @param {string} uid     current user's uid (for audit)
  * @returns {Promise<object>} resolves with the function's result

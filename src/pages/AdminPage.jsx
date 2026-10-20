@@ -132,7 +132,6 @@ function AiUsagePanel() {
   const month = new Date().toISOString().slice(0, 7)
 
   const LABELS = {
-    quickfill: 'Quick Fill (listing assist)',
     seo:       'SEO articles',
     spotlight: 'Artist spotlights',
     interview: 'Interview drafts',
@@ -444,9 +443,7 @@ function SpotlightGenerator({ onGenerated }) {
 function OrdersPanel() {
   const { user, profile } = useAuth()
   const [orders,      setOrders]      = useState([])
-  const [commissions, setCommissions] = useState([])
   const [loading,     setLoading]     = useState(true)
-  const [subTab,      setSubTab]      = useState('orders')
   const [catFilter,   setCatFilter]   = useState('all')
   const [deadlines,   setDeadlines]   = useState({})
   const [bulkBusy,    setBulkBusy]    = useState(false)
@@ -486,12 +483,8 @@ function OrdersPanel() {
 
   useEffect(() => {
     async function load() {
-      const [oSnap, cSnap] = await Promise.all([
-        getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'commissions'), orderBy('submittedAt', 'desc'))),
-      ])
+      const oSnap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
       setOrders(oSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setCommissions(cSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }
     load()
@@ -604,16 +597,10 @@ function OrdersPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-      {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button onClick={() => setSubTab('orders')}      className={pill(subTab === 'orders')}>Orders ({activeOrders.length})</button>
-        <button onClick={() => setSubTab('commissions')} className={pill(subTab === 'commissions')}>Commissions ({commissions.length})</button>
-      </div>
-
       {loading && <p className="font-mono text-[12px] text-warm-gray">Loading…</p>}
 
       {/* ── Product Orders ── */}
-      {!loading && subTab === 'orders' && (
+      {!loading && (
         <>
           {/* Category filter bar — scrollable on mobile */}
           <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
@@ -883,44 +870,6 @@ function OrdersPanel() {
         </>
       )}
 
-      {/* ── Commission Requests ── */}
-      {!loading && subTab === 'commissions' && (
-        commissions.length === 0
-          ? <p className="font-mono text-[12px] text-warm-gray">No commission requests yet.</p>
-          : commissions.map(comm => (
-            <div key={comm.id} style={{ border: '1px solid #e8e0d4', padding: '14px 16px', background: '#faf8f4', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
-                <div>
-                  <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#1a1208', margin: 0, fontWeight: 'bold' }}>{comm.contactName} · {comm.contactEmail}</p>
-                  <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#8a5c3a', margin: '2px 0 0' }}>
-                    {comm.medium} · {comm.size} · ${comm.totalCostMin}–${comm.totalCostMax}{comm.framed ? ' · Framed' : ''}
-                  </p>
-                </div>
-                <span style={{ fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', color: statusColor[comm.status] || '#b97a30', padding: '2px 8px', border: `1px solid ${statusColor[comm.status] || '#e8c87a'}` }}>
-                  {comm.status || 'pending'}
-                </span>
-              </div>
-              {comm.notes && <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#8a5c3a', fontStyle: 'italic' }}>"{comm.notes}"</p>}
-              <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#b0a898', margin: 0 }}>
-                Est. {comm.estimatedHrsMin}–{comm.estimatedHrsMax} hrs · Deadline auto-added to calendar on submit
-              </p>
-              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                {comm.status === 'pending' && (
-                  <>
-                    <button onClick={() => updateDoc(doc(db, 'commissions', comm.id), { status: 'in_progress' }).then(() => setCommissions(p => p.map(c => c.id === comm.id ? { ...c, status: 'in_progress' } : c)))}
-                      style={{ fontFamily: 'monospace', fontSize: '10px', padding: '4px 10px', background: '#3a7a40', color: '#fff', border: 'none', cursor: 'pointer' }}>Accept</button>
-                    <button onClick={() => updateDoc(doc(db, 'commissions', comm.id), { status: 'declined' }).then(() => setCommissions(p => p.map(c => c.id === comm.id ? { ...c, status: 'declined' } : c)))}
-                      style={{ fontFamily: 'monospace', fontSize: '10px', padding: '4px 10px', background: '#b94040', color: '#fff', border: 'none', cursor: 'pointer' }}>Decline</button>
-                  </>
-                )}
-                {comm.status === 'in_progress' && (
-                  <button onClick={() => updateDoc(doc(db, 'commissions', comm.id), { status: 'completed' }).then(() => setCommissions(p => p.map(c => c.id === comm.id ? { ...c, status: 'completed' } : c)))}
-                    style={{ fontFamily: 'monospace', fontSize: '10px', padding: '4px 10px', background: '#1a1208', color: '#fff', border: 'none', cursor: 'pointer' }}>Mark Complete</button>
-                )}
-              </div>
-            </div>
-          ))
-      )}
     </div>
   )
 }
@@ -2539,18 +2488,10 @@ export default function AdminPage() {
   const [productSubTab, setProductSubTab] = useState('active')  // 'active' | 'inactive' | 'bucket'
   const [submitMode,    setSubmitMode]    = useState('publish')  // 'publish' | 'bucket'
   const [bucketBusy,    setBucketBusy]    = useState(false)
-  const [qfText,        setQfText]        = useState('')
-  const [qfOpen,        setQfOpen]        = useState(false)
-  const [qfLoading,     setQfLoading]     = useState(false)
-  const [qfError,       setQfError]       = useState(null)
   const [discogsQuery,  setDiscogsQuery]  = useState('')
   const [discogsBusy,   setDiscogsBusy]   = useState(false)
   const [discogsMsg,    setDiscogsMsg]    = useState(null)
   const [scannerOpen,   setScannerOpen]   = useState(false)
-  const [batchBusy,     setBatchBusy]     = useState(false)
-  const [batchError,    setBatchError]    = useState(null)
-  const [batchResult,   setBatchResult]   = useState(null)   // { groups, ungrouped, notes, urls }
-  const [batchUsed,     setBatchUsed]     = useState([])      // indexes of groups already pulled into the form
 
   async function handleDiscogsLookup(overrideValue) {
     const q = (overrideValue ?? discogsQuery).trim()
@@ -2596,88 +2537,6 @@ export default function AdminPage() {
     setScannerOpen(false)
     setDiscogsQuery(value)
     handleDiscogsLookup(value)
-  }
-
-  async function handleQuickFill() {
-    const imageUrl = photoSlots[0]?.url || null
-    if (!qfText.trim() && !imageUrl) {
-      setQfError('Add some notes or upload a photo first.')
-      return
-    }
-    setQfLoading(true)
-    setQfError(null)
-    try {
-      const data = await runAiJob('quickfill', { text: qfText.trim() || undefined, imageUrl: imageUrl || undefined })
-      // Merge suggestions into form — only overwrite blank fields
-      setForm(f => ({
-        ...f,
-        name:        data.name        || f.name,
-        description: data.description || f.description,
-        price:       data.price       != null ? String(data.price) : f.price,
-        category:    data.category    || f.category,
-        condition:   data.condition   || f.condition,
-        medium:      data.medium      || f.medium,
-        artist:      data.artist      || f.artist,
-        albumTitle:  data.albumTitle  || f.albumTitle,
-        genre:       data.genre       || f.genre,
-        size:        data.size        || f.size,
-        weightOz:    data.weightOz    != null ? String(data.weightOz) : f.weightOz,
-      }))
-      setQfOpen(false)
-      setQfText('')
-    } catch (err) {
-      setQfError(err.message || 'Suggestion failed.')
-    } finally {
-      setQfLoading(false)
-    }
-  }
-
-  // ── AI Batch sort — one pass over every uploaded photo ─────────────
-  // Sends all uploaded photos to the model, which groups fronts/backs/details
-  // by item and drafts a listing per group. Zion then pulls each group into the
-  // form one at a time with "Use → fill form". Snapshots the URL list so the
-  // group indexes stay valid even after the form's photoSlots get replaced.
-  async function handleBatchSort() {
-    const urls = photoSlots.map(s => s.url).filter(Boolean)
-    if (urls.length < 2) { setBatchError('Upload at least 2 photos first (multiple items to sort).'); return }
-    setBatchBusy(true); setBatchError(null); setBatchResult(null); setBatchUsed([])
-    try {
-      const res = await runAiJob('batch', { imageUrls: urls })
-      setBatchResult({ ...res, urls })
-      if (!res.groups?.length) setBatchError('No groups came back — try clearer photos or sort manually.')
-    } catch (err) {
-      setBatchError(err.message || 'Batch sort failed.')
-    } finally { setBatchBusy(false) }
-  }
-
-  // Pull one batch group into the add form: set the fields it identified and
-  // load just that group's photos into the slots, ready to review + publish.
-  function applyBatchGroup(group, gIdx) {
-    const urls = batchResult?.urls || []
-    const groupUrls = (group.imageIndexes || [])
-      .map(i => urls[i])
-      .filter(Boolean)
-    if (groupUrls.length) {
-      setPhotoSlots(groupUrls.map(u => ({ preview: u, url: u, uploading: false })))
-    }
-    setForm(f => {
-      // Associated artists become extra style/metadata tags (merged, de-duped).
-      const extra = Array.isArray(group.associatedArtists) ? group.associatedArtists.filter(Boolean) : []
-      const styles = Array.from(new Set([...(Array.isArray(f.styles) ? f.styles : []), ...extra]))
-      return {
-        ...f,
-        category:   group.category   || f.category || 'Physical Media',
-        name:       group.name       || f.name,
-        artist:     group.artist     || f.artist,
-        albumTitle: group.albumTitle || f.albumTitle,
-        genre:      group.genre      || f.genre,
-        year:       group.year != null ? String(group.year) : f.year,
-        condition:  group.condition  || f.condition,
-        styles,
-      }
-    })
-    setBatchUsed(u => u.includes(gIdx) ? u : [...u, gIdx])
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // ── Load products from Firestore ───────────────────────────────────
@@ -3239,82 +3098,6 @@ export default function AdminPage() {
                     style={{ display: 'none' }}
                   />
 
-                  {/* ── AI Batch sort — group a pile of photos into per-item listings ── */}
-                  {photoSlots.filter(s => s.url).length >= 2 && (
-                    <div style={{ marginTop: '10px', border: '1px solid #7a8a5a', background: 'rgba(122,138,90,0.06)', padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          onClick={handleBatchSort}
-                          disabled={batchBusy || imgUploading}
-                          style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '8px 16px', background: batchBusy ? '#c4b4a0' : '#5e7038', color: '#f2ebe0', border: 'none', cursor: (batchBusy || imgUploading) ? 'default' : 'pointer', opacity: imgUploading ? 0.5 : 1 }}
-                        >
-                          {batchBusy ? 'Sorting…' : '🪄 AI Batch sort'}
-                        </button>
-                        <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#6a7a4a' }}>
-                          Groups all {photoSlots.filter(s => s.url).length} uploaded photos by item — then pull each into the form.
-                        </span>
-                      </div>
-
-                      {batchError && (
-                        <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b94040', margin: '8px 0 0' }}>{batchError}</p>
-                      )}
-
-                      {batchResult && (
-                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {batchResult.notes && (
-                            <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#6a7a4a', margin: 0, fontStyle: 'italic' }}>{batchResult.notes}</p>
-                          )}
-                          {batchResult.groups.map((g, gi) => {
-                            const used = batchUsed.includes(gi)
-                            const lowConf = g.confidence === 'low' || g.flag
-                            const thumbs = (g.imageIndexes || []).map(i => batchResult.urls[i]).filter(Boolean)
-                            return (
-                              <div key={gi} style={{ border: `1px solid ${lowConf ? '#c08a30' : '#c8bfb0'}`, background: lowConf ? 'rgba(192,138,48,0.06)' : '#faf7f1', padding: '10px', opacity: used ? 0.55 : 1 }}>
-                                <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                                  {thumbs.map((u, ti) => (
-                                    <img key={ti} src={u} alt="" loading="lazy" style={{ width: '44px', height: '44px', objectFit: 'cover', borderRadius: '2px', border: '1px solid #d4c9bb' }} />
-                                  ))}
-                                </div>
-                                <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#3a2a18', margin: '0 0 2px', fontWeight: 600 }}>
-                                  {g.name || [g.artist, g.albumTitle].filter(Boolean).join(' — ') || `Item ${gi + 1}`}
-                                </p>
-                                <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#7a6a55', margin: 0 }}>
-                                  {[g.category, g.genre, g.year, g.condition].filter(Boolean).join(' · ') || '—'}
-                                  {Array.isArray(g.associatedArtists) && g.associatedArtists.length > 0 && ` · +${g.associatedArtists.join(', ')}`}
-                                </p>
-                                {lowConf && (
-                                  <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#a06a10', margin: '4px 0 0' }}>
-                                    ⚠ {g.flag || 'Low confidence — double-check this one.'}
-                                  </p>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => applyBatchGroup(g, gi)}
-                                  disabled={used}
-                                  style={{ marginTop: '8px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.06em', textTransform: 'uppercase', padding: '6px 14px', background: used ? 'transparent' : '#5e7038', color: used ? '#7a8a5a' : '#f2ebe0', border: used ? '1px solid #b4bf9a' : 'none', cursor: used ? 'default' : 'pointer' }}
-                                >
-                                  {used ? '✓ Pulled into form' : 'Use → fill form'}
-                                </button>
-                              </div>
-                            )
-                          })}
-                          {batchResult.ungrouped.length > 0 && (
-                            <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#a06a10', margin: 0 }}>
-                              ⚠ {batchResult.ungrouped.length} photo{batchResult.ungrouped.length !== 1 ? 's' : ''} couldn't be placed — sort {batchResult.ungrouped.length !== 1 ? 'them' : 'it'} manually.
-                            </p>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => { setBatchResult(null); setBatchUsed([]); setBatchError(null) }}
-                            style={{ alignSelf: 'flex-start', fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 10px', background: 'transparent', border: '1px solid #c8bfb0', color: '#8a7560', cursor: 'pointer' }}
-                          >
-                            ✕ Clear results
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )
             })()}
@@ -3381,48 +3164,6 @@ export default function AdminPage() {
                 onClose={() => setScannerOpen(false)}
               />
             )}
-
-            {/* ── AI Quick Fill ── */}
-            <div style={{ border: '1px solid #c4b4a0', background: 'rgba(185,122,48,0.04)' }}>
-              <button
-                type="button"
-                onClick={() => { setQfOpen(o => !o); setQfError(null) }}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#b97a30' }}
-              >
-                <span>✦ AI Quick Fill</span>
-                <span style={{ fontSize: '10px', opacity: 0.6 }}>{qfOpen ? '▲ close' : '▼ open'}</span>
-              </button>
-              {qfOpen && (
-                <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#8a5c3a', margin: 0, lineHeight: 1.5 }}>
-                    Describe the item in rough notes. If you've uploaded a photo above, it'll be analyzed too. Fills in blank fields only.
-                  </p>
-                  <textarea
-                    value={qfText}
-                    onChange={e => setQfText(e.target.value)}
-                    placeholder="e.g. vintage sony walkman from 80s, plays cassettes, grey, great condition, found at estate sale, prob worth around $45"
-                    rows={3}
-                    style={{ fontFamily: 'monospace', fontSize: '12px', padding: '8px 10px', border: '1px solid #c4b4a0', background: 'transparent', color: 'inherit', outline: 'none', resize: 'vertical', width: '100%', boxSizing: 'border-box', lineHeight: 1.5 }}
-                  />
-                  {qfError && (
-                    <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b94040', margin: 0 }}>{qfError}</p>
-                  )}
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      onClick={handleQuickFill}
-                      disabled={qfLoading}
-                      style={{ fontFamily: 'monospace', fontSize: '11px', padding: '7px 18px', background: qfLoading ? '#c4b4a0' : '#b97a30', color: '#f2ebe0', border: 'none', cursor: qfLoading ? 'not-allowed' : 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}
-                    >
-                      {qfLoading ? 'Thinking…' : 'Suggest Fields'}
-                    </button>
-                    {photoSlots[0]?.url && (
-                      <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#3a7a40' }}>✓ Photo will be included</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* Name */}
             <div className="flex flex-col gap-1">

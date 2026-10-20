@@ -5,7 +5,6 @@ import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 import FloraRoots from '../components/FloraRoots'
 import DrawingCanvas from '../components/DrawingCanvas'
-import CommissionForm from '../components/CommissionForm'
 import { CATEGORIES } from '../data/products'
 import { fetchShopProducts } from '../data/storage'
 import { getArtistsWithWork } from '../data/artists'
@@ -101,7 +100,6 @@ function ArtistShopCard({ artist }) {
 export default function ShopPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [showCommission, setShowCommission] = useState(false)
   const [products, setProducts] = useState([])
   const [loadState, setLoadState] = useState('loading')  // 'loading' | 'ready' | 'error'
   const [searchQuery, setSearchQuery] = useState('')
@@ -153,12 +151,6 @@ export default function ShopPage() {
     return () => resetPageMeta()
   }, [activeFilter])
 
-  useEffect(() => {
-    if (!showCommission) return
-    function onKey(e) { if (e.key === 'Escape') setShowCommission(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showCommission])
   const artMedium     = searchParams.get('medium')  || 'All Art'
   const planterSeries = searchParams.get('series')  || 'All Get On The Flora'
   const vintageType   = searchParams.get('vintage') || 'All Vintage Tech'
@@ -518,57 +510,7 @@ export default function ShopPage() {
         )}
 
         {!CATEGORIES.includes(activeFilter) && <div className="pb-6" />}
-
-        {/* ── Commission button (Art only) ─────────────────────── */}
-        {activeFilter === 'Art' && (
-          <div className="pb-6 pt-2">
-            <button
-              onClick={() => setShowCommission(true)}
-              style={{
-                fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em',
-                textTransform: 'uppercase', padding: '12px 24px',
-                border: '1px solid rgba(0,0,0,0.25)', background: 'transparent',
-                color: '#1a1208', cursor: 'pointer', transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#1a1208'; e.currentTarget.style.color = '#f2ebe0' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#1a1208' }}
-            >
-              Request a Commission →
-            </button>
-          </div>
-        )}
       </section>
-
-      {/* ── Commission modal ─────────────────────────────────────── */}
-      {showCommission && (
-        <div
-          onClick={e => { if (e.target === e.currentTarget) setShowCommission(false) }}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 100,
-            background: 'rgba(242,235,224,0.92)', backdropFilter: 'blur(6px)',
-            overflowY: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-            padding: '60px 16px 40px',
-          }}
-        >
-          <div style={{
-            background: '#faf8f4', border: '1px solid #d4c9bb',
-            width: '100%', maxWidth: '560px', position: 'relative',
-          }}>
-            <button
-              onClick={() => setShowCommission(false)}
-              style={{
-                position: 'absolute', top: '14px', right: '16px',
-                background: 'none', border: 'none', cursor: 'pointer',
-                fontFamily: 'monospace', fontSize: '11px', color: '#8a5c3a',
-                letterSpacing: '0.1em', textTransform: 'uppercase',
-              }}
-            >
-              ✕ close
-            </button>
-            <CommissionForm onClose={() => setShowCommission(false)} />
-          </div>
-        </div>
-      )}
 
       {/* ── Canvas effects (behind everything) ───────────────── */}
       {isFlora && <FloraRoots />}

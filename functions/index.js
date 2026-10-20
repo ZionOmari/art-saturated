@@ -2053,172 +2053,6 @@ async function geminiText({ contents, config, model = 'gemini-2.0-flash' }) {
   return (result.text || '').trim()
 }
 
-// ── AI listing assistant ─────────────────────────────────────────────────────
-async function suggestListingFields({ text, imageUrl }) {
-  if (!text && !imageUrl) { const e = new Error('Provide text or imageUrl.'); e.code = 'invalid'; throw e }
-
-  const parts = []
-  if (text)     parts.push({ text: `Seller notes: ${text}` })
-  if (imageUrl) {
-    // SSRF guard: only fetch from our own Storage bucket over https. Prevents a crafted
-    // imageUrl from making the function hit internal/metadata endpoints (e.g. 169.254.169.254).
-    let allowed = false
-    try {
-      const u = new URL(imageUrl)
-      allowed = u.protocol === 'https:' && (
-        u.hostname === 'firebasestorage.googleapis.com' ||
-        u.hostname === 'storage.googleapis.com'
-      )
-    } catch { allowed = false }
-
-    if (!allowed) {
-      console.warn('suggestListingFields: rejected non-allowlisted imageUrl host')
-    } else {
-      try {
-        const imgRes  = await fetch(imageUrl)
-        const buf     = await imgRes.arrayBuffer()
-        if (buf.byteLength > 8 * 1024 * 1024) throw new Error('image too large')
-        const base64  = Buffer.from(buf).toString('base64')
-        const mime    = imgRes.headers.get('content-type') || 'image/jpeg'
-        parts.push({ inlineData: { data: base64, mimeType: mime } })
-      } catch (e) {
-        console.warn('suggestListingFields: could not fetch image:', e.message)
-      }
-    }
-  }
-
-  const raw = await geminiText({
-    contents: [{ role: 'user', parts }],
-    config: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 512,
-      temperature: 0.2,
-      systemInstruction: `You are a listing assistant for Art Saturated, an online art and collectibles marketplace based in Fort Wayne, Indiana.
-
-Given the seller's rough notes and/or a product photo, return listing details as JSON.
-
-Valid categories: Art, Physical Media, Vintage Tech, Get On The Flora, Plants
-Valid conditions: New, Like New, Very Good, Good, Fair, Poor
-Valid art mediums: Pen, Crayon, Mixed, Ink, Paint, Digital, Photography
-Valid genres (Physical Media): Hip-Hop, Jazz, Soul, R&B, Funk, Blues, Rock, Pop, Electronic, Other
-
-Return ONLY valid JSON — no markdown, no explanation. Include only fields you can confidently fill:
-{
-  "name": "concise title, max 60 chars",
-  "description": "2-3 engaging sentences",
-  "price": 35,
-  "category": "Art",
-  "condition": "Very Good",
-  "medium": "Ink",
-  "artist": "artist name if Physical Media",
-  "albumTitle": "album name if Physical Media",
-  "genre": "genre if Physical Media",
-  "size": "dimensions if visible, e.g. 8x10",
-  "weightOz": 6
-}`,
-    },
-  })
-  return JSON.parse(raw)
-}
-
-// ── AI: Batch photo triage — group a pile of photos into per-item listings ─────
-// Zion dumps a whole stack of record/item photos (fronts, backs, detail shots)
-// at once; this single multimodal pass groups the shots that belong to the same
-// physical item, drafts listing fields per group, and FLAGS anything it isn't
-// sure about (an orphan photo, a front/back that disagree, a blurry scan). One
-// Gemini call reasons across the whole batch — cheaper than per-photo, and lets
-// the model actually pair fronts with backs. The client then reviews and
-// publishes group-by-group.
-const BATCH_MAX_PHOTOS = 20
-async function batchListingFromPhotos({ imageUrls }) {
-  if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
-    const e = new Error('Provide at least one photo.'); e.code = 'invalid'; throw e
-  }
-  const urls = imageUrls.slice(0, BATCH_MAX_PHOTOS)
-
-  // Same SSRF allowlist as suggestListingFields — only our own Storage over https.
-  const isAllowed = (u) => {
-    try {
-      const url = new URL(u)
-      return url.protocol === 'https:' && (
-        url.hostname === 'firebasestorage.googleapis.com' ||
-        url.hostname === 'storage.googleapis.com'
-      )
-    } catch { return false }
-  }
-
-  const parts = []
-  let included = 0
-  for (let i = 0; i < urls.length; i++) {
-    if (!isAllowed(urls[i])) { console.warn('batchListingFromPhotos: skipped non-allowlisted url at index', i); continue }
-    try {
-      const res = await fetch(urls[i])
-      const buf = await res.arrayBuffer()
-      if (buf.byteLength > 8 * 1024 * 1024) { console.warn('batch: image too large at index', i); continue }
-      // Label each image with its index so the model can refer back to it by number.
-      parts.push({ text: `Photo index ${i}:` })
-      parts.push({ inlineData: { data: Buffer.from(buf).toString('base64'), mimeType: res.headers.get('content-type') || 'image/jpeg' } })
-      included++
-    } catch (e) { console.warn('batch: could not fetch image', i, e.message) }
-  }
-  if (included === 0) { const e = new Error('None of the photos could be read.'); e.code = 'invalid'; throw e }
-
-  const raw = await geminiText({
-    contents: [{ role: 'user', parts }],
-    config: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 2048,
-      temperature: 0.2,
-      systemInstruction: `You are a cataloging assistant for Art Saturated, an online art and collectibles marketplace based in Fort Wayne, Indiana.
-
-You are given a batch of product photos, each prefixed with its "Photo index N". The batch usually contains MULTIPLE distinct items, often with several photos of each item (e.g. the front cover, back cover, and detail shots of the same record).
-
-Your job:
-1. GROUP the photos by the physical item they show. Front + back + detail shots of the SAME item go in ONE group.
-2. For each group, draft listing fields from what is visible.
-3. FLAG uncertainty: a photo you cannot confidently place, a group whose photos seem to disagree (e.g. a front and back that look like different albums), or anything too blurry to read.
-
-Valid categories: Art, Physical Media, Vintage Tech, Get On The Flora, Plants
-Valid conditions: New, Like New, Very Good, Good, Fair, Poor
-Valid genres (Physical Media only): Hip-Hop, Jazz, Soul, R&B, Funk, Blues, Rock, Pop, Electronic, Other
-
-Return ONLY valid JSON, no markdown:
-{
-  "groups": [
-    {
-      "imageIndexes": [0, 1],
-      "category": "Physical Media",
-      "name": "Artist - Album",
-      "artist": "...",
-      "albumTitle": "...",
-      "genre": "...",
-      "year": 1982,
-      "condition": "Very Good",
-      "associatedArtists": ["producer / featured / label names you can read"],
-      "confidence": "high",
-      "flag": "short reason this group is uncertain (omit when confident)"
-    }
-  ],
-  "ungrouped": [3],
-  "notes": "one short sentence about the batch overall (omit if nothing to say)"
-}
-
-Rules:
-- "confidence" must be exactly "high" or "low".
-- Include only fields you can confidently fill; omit the rest.
-- Every photo index you were given must appear in exactly one group's imageIndexes OR in "ungrouped" — never both, never neither.`,
-    },
-  })
-  const parsed = JSON.parse(raw)
-  // Normalize to a shape the client can rely on without defensive checks.
-  return {
-    groups:    Array.isArray(parsed.groups)    ? parsed.groups    : [],
-    ungrouped: Array.isArray(parsed.ungrouped) ? parsed.ungrouped : [],
-    notes:     typeof parsed.notes === 'string' ? parsed.notes : '',
-    photoCount: included,
-  }
-}
-
 // ── AI: Generate interview draft from artist responses ────────────────────────
 // Called from AdminPage "Interviews" tab after the artist submits their answers.
 // Uses Vertex AI (Gemini) to produce a first-person blog-post draft.
@@ -2326,7 +2160,7 @@ async function incrementSeoUsage(db) {
 // ── AI credit governance ──────────────────────────────────────────────────────
 // Rough per-call cost estimates for Gemini 1.5 Flash (USD). Good enough to keep
 // credit spend visible and capped; not billing-grade accounting.
-const AI_COST = { quickfill: 0.0015, seo: 0.0009, spotlight: 0.0009, interview: 0.0007, qa: 0.0010, ideas: 0.0005 }
+const AI_COST = { seo: 0.0009, spotlight: 0.0009, interview: 0.0007, qa: 0.0010, ideas: 0.0005 }
 
 // Block new AI jobs if paused or the monthly budget ceiling is hit.
 async function checkAiBudget(db) {
@@ -2605,7 +2439,7 @@ exports.onAiRequestCreated = fn({ timeoutSeconds: 120, memory: '512MB' })
     const db  = admin.firestore()
     const payload = req.payload || {}
     try {
-      const AI_TYPES = ['quickfill', 'seo', 'spotlight', 'interview', 'batch']
+      const AI_TYPES = ['seo', 'spotlight', 'interview']
       // Discogs lookup isn't AI — it doesn't count against the AI budget.
       if (AI_TYPES.includes(req.type)) {
         const budget = await checkAiBudget(db)
@@ -2614,8 +2448,6 @@ exports.onAiRequestCreated = fn({ timeoutSeconds: 120, memory: '512MB' })
 
       let result
       switch (req.type) {
-        case 'quickfill':  result = await suggestListingFields(payload); break
-        case 'batch':      result = await batchListingFromPhotos(payload); break
         case 'seo':        result = await generateSeoArticleDoc((payload.topic || '').trim(), db, 'seo-ai-manual'); break
         case 'spotlight':  result = await generateArtistSpotlightDoc(payload.uid, db); break
         case 'interview':  result = await generateInterviewDraftDoc(payload.interviewId, db); break
@@ -2792,11 +2624,10 @@ exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
     const db = admin.firestore()
 
     // Gather housekeeping counts in parallel
-    const [ordersSnap, submissionsSnap, eventSubsSnap, commissionsSnap, feedbackSnap] = await Promise.all([
+    const [ordersSnap, submissionsSnap, eventSubsSnap, feedbackSnap] = await Promise.all([
       db.collection('orders').where('status', '==', 'pending').get(),
       db.collection('submissions').where('status', '==', 'pending_review').get(),
       db.collection('eventSubmissions').where('status', '==', 'pending').get(),
-      db.collection('commissions').where('status', '==', 'pending').get(),
       db.collection('feedback').where('status', '==', 'new').get(),
     ])
 
@@ -2811,7 +2642,6 @@ exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
       unpaidPending        > 0 ? `  • ${unpaidPending} abandoned checkout(s) — no payment taken, archive when convenient` : '',
       submissionsSnap.size > 0 ? `  • ${submissionsSnap.size} art submission(s) awaiting review` : '',
       eventSubsSnap.size   > 0 ? `  • ${eventSubsSnap.size} event submission(s) awaiting approval` : '',
-      commissionsSnap.size > 0 ? `  • ${commissionsSnap.size} commission request(s) awaiting reply` : '',
       feedbackSnap.size    > 0 ? `  • ${feedbackSnap.size} feedback item(s) unread` : '',
     ].filter(Boolean)
 
@@ -2891,57 +2721,6 @@ exports.watermarkSubmission = fn({ timeoutSeconds: 120, memory: '1GB' })
 
   return null
 })
-
-// ── Firestore: Commission request (public form) → notify Zion + confirm customer ─
-// Fires when CommissionForm writes to commissions/{commId}.
-exports.onCommissionCreated = fn().firestore
-  .document('commissions/{commId}')
-  .onCreate(async (snap) => {
-    initSG()
-    const c = snap.data()
-    if (!c.contactEmail) return null
-
-    const shortId = snap.id.slice(-6).toUpperCase()
-
-    // Notify Zion
-    await sendEmail(
-      OWNER_EMAIL,
-      `New Commission Request #${shortId} — ${c.contactName || 'Unknown'}`,
-      [
-        `New commission request!`,
-        ``,
-        `From:       ${c.contactName || '?'} (${c.contactEmail})`,
-        `Medium:     ${c.medium || '—'}`,
-        `Size:       ${c.size || '—'}`,
-        `Style:      ${c.abstractionLabel || c.abstraction || '—'}`,
-        ``,
-        `Estimate:   $${c.totalCostMin || '?'}–$${c.totalCostMax || '?'} total`,
-        c.estimatedHrsMin != null ? `Hours:      ${c.estimatedHrsMin}–${c.estimatedHrsMax} hrs` : '',
-        c.notes ? `\nNotes:\n${c.notes}` : '',
-        ``,
-        `Manage at: ${CLIENT_URL}/admin`,
-      ].filter(l => l !== null && l !== undefined).join('\n'),
-    ).catch(console.error)
-
-    // Confirmation to customer
-    await sendEmail(
-      c.contactEmail,
-      `Commission Request Received — Art Saturated #${shortId}`,
-      fmtEmail(c.contactName, [
-        `Your commission request has been received! Here's a summary:`,
-        ``,
-        `Medium:     ${c.medium || '—'}`,
-        `Size:       ${c.size || '—'}`,
-        `Style:      ${c.abstractionLabel || c.abstraction || '—'}`,
-        `Estimate:   $${c.totalCostMin || '?'}–$${c.totalCostMax || '?'} total`,
-        c.notes ? `\nYour notes:\n${c.notes}` : '',
-        ``,
-        `You'll hear back to confirm your slot and receive a deposit invoice.`,
-      ].filter(l => l !== null && l !== undefined), '— Zionomari / Art Saturated'),
-    ).catch(console.error)
-
-    return null
-  })
 
 // ── Firestore: Single session booked → confirm customer + notify Zion ─────────
 exports.onBookingCreated = fn().firestore
