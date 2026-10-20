@@ -594,13 +594,11 @@ exports.onCheckoutRequestCreated = functions
 
 
 // ── Stripe: Webhook ───────────────────────────────────────────────────────────
-// NOTE: this endpoint currently returns 403 to Stripe. The project cannot grant
-// `allUsers` invoker (deploy fails with "Failed to set the IAM Policy" — an org
-// policy blocks public bindings, which is why every other HTTP path here was
-// rewritten as a Firestore trigger). Until that policy is lifted, payments are
-// captured by the scheduled reconcileStripePayments function below instead.
-// Both routes call the same handlePaidSession(), so this starts working the
-// moment the endpoint becomes reachable — no code change needed.
+// Stripe POSTs here (public invoker; every request must carry a valid Stripe
+// signature). Until Oct 2026 an org policy (Domain restricted sharing) blocked
+// public invokers, so payments settled only via the scheduled
+// reconcileStripePayments below. The policy is now overridden for this project;
+// the reconciler stays as a safety net. Both call handlePaidSession().
 // Settlement path for one paid Checkout Session. Idempotent — the webhook and the
 // scheduled reconciler may both call it for the same session.
 async function handlePaidSession(session) {
@@ -983,7 +981,7 @@ if (process.env.FUNCTIONS_TEST) {
   exports.__setStripeStub   = (stub) => { _stripeStub = stub }
 }
 
-exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
+exports.stripeWebhook = functions.runWith({ invoker: 'public' }).https.onRequest(async (req, res) => {
   const sig    = req.headers['stripe-signature']
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   let event
@@ -1174,11 +1172,10 @@ exports.syncArtistMemberships = functions
     return null
   })
 
-// ── Scheduled: pull paid Stripe sessions (the webhook can't be reached) ───────
-// Stripe cannot POST to stripeWebhook — this project can't grant public invoker,
-// so the endpoint 403s. This polls instead: every 5 minutes it asks Stripe for
-// recently-paid sessions and runs each through the same handlePaidSession().
-// The idempotency lock means overlap with a (future) working webhook is harmless.
+// ── Scheduled: pull paid Stripe sessions (safety net for the webhook) ─────────
+// Every 5 minutes, asks Stripe for recently-paid sessions and runs each through
+// the same handlePaidSession() as stripeWebhook. Catches anything the webhook
+// missed (outage, failed delivery). The idempotency lock makes overlap harmless.
 //
 // Lookback is deliberately wider than the interval so a failed run self-heals.
 exports.reconcileStripePayments = functions
