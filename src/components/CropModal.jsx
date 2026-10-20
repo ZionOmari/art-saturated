@@ -10,7 +10,7 @@
  * • Loupe       → magnified circle appears in opposite corner while dragging
  * • Apply       → canvas extracts whatever sits inside the crop frame
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FRAME_MAX  = 320   // max crop-frame px (responsive: capped by viewport)

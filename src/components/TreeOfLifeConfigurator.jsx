@@ -54,7 +54,6 @@ export default function TreeOfLifeConfigurator() {
   const basePrice   = size ? SIZES.find(s => s.label === size).price : null
   const plantAddon  = withPlant ? 5 : 0
   const total       = basePrice !== null ? basePrice + plantAddon : null
-  const canShip     = withPlant === false
   const ready       = size && color && withPlant !== null && (withPlant === false || plant)
 
   function handleAdd() {

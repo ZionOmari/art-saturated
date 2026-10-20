@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { doc, getDoc, collection, query, where, limit, getDocs } from 'firebase/firestore'
+import { collection, query, where, limit, getDocs } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useCart } from '../context/CartContext'
 import { useToast } from '../hooks/useToast'
@@ -16,16 +16,6 @@ import ReportListing from '../components/ReportListing'
 import { useAuth } from '../context/AuthContext'
 import { checkoutDeposit } from '../lib/stripe'
 import Spinner from '../components/Spinner'
-
-const DEFAULT_SHIP_TIERS = [4.99, 7.99, 12.99, 18.99]
-function calcShipEst(oz, tiers = DEFAULT_SHIP_TIERS) {
-  const n = Number(oz)
-  if (!n || n <= 0) return null
-  if (n <= 8)  return tiers[0]
-  if (n <= 16) return tiers[1]
-  if (n <= 48) return tiers[2]
-  return tiers[3]
-}
 
 // ── Photo gallery ─────────────────────────────────────────────────────────────
 function ProductGallery({ product }) {
@@ -318,7 +308,6 @@ export default function ProductPage() {
   const location = useLocation()
   const [product,    setProduct]    = useState(null)
   const [loading,    setLoading]    = useState(true)
-  const [shipTiers,  setShipTiers]  = useState(DEFAULT_SHIP_TIERS)
 
   useEffect(() => {
     setLoading(true)
@@ -329,17 +318,10 @@ export default function ProductPage() {
       .finally(() => setLoading(false))
   }, [slug])
 
-  useEffect(() => {
-    getDoc(doc(db, 'settings', 'storeConfig'))
-      .then(snap => { if (snap.exists() && snap.data().shippingTiers) setShipTiers(snap.data().shippingTiers) })
-      .catch(() => {})
-  }, [])
-
   const { addToCart } = useCart()
   const { toast, showToast } = useToast()
-  const { user, addToWishlist, removeFromWishlist, inWishlist, placeOrder } = useAuth()
+  const { user, placeOrder } = useAuth()
   const [added,        setAdded]        = useState(false)
-  const [wishlisted,   setWishlisted]   = useState(false)
   const [depositBusy,  setDepositBusy]  = useState(false)
   const [depositError, setDepositError] = useState(null)
   const [copied,       setCopied]       = useState(false)
@@ -384,19 +366,6 @@ export default function ProductPage() {
     setTimeout(() => setAdded(false), 1600)
   }
 
-  async function handleWishlist() {
-    // Return to this product after sign-in rather than dumping them on /account.
-    if (!user) { navigate('/login', { state: { from: location.pathname } }); return }
-    if (inWishlist(product.id)) {
-      await removeFromWishlist(product.id)
-      setWishlisted(false)
-    } else {
-      await addToWishlist(product)
-      setWishlisted(true)
-    }
-  }
-
-  const isWishlisted = wishlisted || inWishlist(product.id)
 
   // ── Stock helpers ──────────────────────────────────────────────────────────
   const stockNum   = (product.stock != null && product.stock !== '') ? Number(product.stock) : null
@@ -633,16 +602,6 @@ export default function ProductPage() {
                   View Cart
                 </button>
 
-                <button
-                  onClick={handleWishlist}
-                  className="w-full font-mono text-[11px] tracking-[0.15em] uppercase
-                             border border-warm-gray-light bg-transparent
-                             py-4 cursor-pointer transition-all duration-200
-                             hover:border-ink hover:text-ink"
-                  style={{ color: isWishlisted ? '#b94040' : undefined }}
-                >
-                  {isWishlisted ? '♥ Saved to Wishlist' : '♡ Save to Wishlist'}
-                </button>
 
                 {/* Marketplace disclaimer — shown for artist-submitted listings */}
                 {product.artistName && (

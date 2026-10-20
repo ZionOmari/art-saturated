@@ -25,7 +25,8 @@ const btn = (gold) => ({
 // Only same-site paths are honoured: "//evil.com" and "/\evil.com" are read by
 // browsers as another site, which would make our login page an open redirect.
 function safeReturnPath(p) {
-  if (typeof p !== 'string' || !p.startsWith('/') || /^\/[\/\\]/.test(p) || /[\u0000-\u001f\\]/.test(p)) return '/account'
+  // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+  if (typeof p !== 'string' || !p.startsWith('/') || /^\/[/\\]/.test(p) || /[\u0000-\u001f\\]/.test(p)) return '/account'
   return p
 }
 

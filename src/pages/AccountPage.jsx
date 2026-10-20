@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import { useAuth, hasRole, normalizeTypes } from '../context/AuthContext'
@@ -225,7 +225,7 @@ const statusColor = { pending: '#b97a30', ready: '#3a7a40', completed: 'rgb(var(
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 function Profile() {
-  const { user, profile, logOut, updateNotifyPrefs, updateDisplayName, updateArtistProfile, removeFromWishlist, fetchOrders, fetchSellerOrders, switchAccountType } = useAuth()
+  const { user, profile, logOut, updateNotifyPrefs, updateDisplayName, updateArtistProfile, fetchOrders, fetchSellerOrders, switchAccountType } = useAuth()
   const navigate   = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const isOwner    = user?.email === 'zionomari@artsaturated.com'
@@ -251,7 +251,6 @@ function Profile() {
   const [displayName,  setDisplayName]  = useState(profile?.name   || '')
   const [nameSaved,    setNameSaved]    = useState(false)
   const [saved,        setSaved]        = useState(false)
-  const [wlCopied,     setWlCopied]     = useState(false)
   const [orders,       setOrders]       = useState([])
   const [sellerOrders, setSellerOrders] = useState([])
   const [artistBio,    setArtistBio]    = useState(profile?.artistBio  || '')
@@ -264,7 +263,6 @@ function Profile() {
   const [artistSaved,  setArtistSaved]  = useState(false)
   const [artistSlug,   setArtistSlug]   = useState(profile?.slug || '')
   const [slugError,    setSlugError]    = useState('')
-  const [slugChecking, setSlugChecking] = useState(false)
   const [themeBgType,  setThemeBgType]  = useState(profile?.theme?.backgroundType || 'gradient')
   const [themeColor1,  setThemeColor1]  = useState(profile?.theme?.color1 || '#f5f0e8')
   const [themeColor2,  setThemeColor2]  = useState(profile?.theme?.color2 || '#e8e0d4')
@@ -334,7 +332,6 @@ function Profile() {
     ? visibleOrders.filter(o => (o.items || []).some(i => i.category === 'Art'))
     : sellerOrders.filter(o => !o.archived)
 
-  const wishlist = profile?.wishlist || []
 
   async function handleLogOut() { await logOut(); navigate('/') }
 
@@ -370,9 +367,7 @@ function Profile() {
 
   async function handleSaveArtistProfile() {
     if (artistSlug && artistSlug !== profile?.slug) {
-      setSlugChecking(true)
       const err = await validateSlug(artistSlug, user.uid)
-      setSlugChecking(false)
       if (err) { setSlugError(err); return }
       if (profile?.slug) await releaseSlug(profile.slug).catch(() => {})
       await claimSlug(artistSlug, user.uid)
@@ -440,7 +435,6 @@ function Profile() {
             <button style={tabBtn(tab === 'blog')} onClick={() => setTab('blog')}>Blog</button>
           </>
         )}
-        <button style={tabBtn(tab === 'wishlist')}    onClick={() => setTab('wishlist')}>Wishlist</button>
         <button style={tabBtn(tab === 'requests')}   onClick={() => setTab('requests')}>My Requests</button>
         <button style={tabBtn(tab === 'settings')}    onClick={() => setTab('settings')}>Settings</button>
         {isOwner && (
@@ -627,59 +621,6 @@ function Profile() {
             </div>
           )}
 
-        </div>
-      )}
-
-      {/* ── Wishlist ───────────────────────────────────────────── */}
-      {tab === 'wishlist' && (
-        <div>
-          {wishlist.length === 0 ? (
-            <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-warm-gray))' }}>Nothing saved yet. Hit ♡ on any product to save it.</p>
-          ) : (
-            <>
-              {/* Share button */}
-              <div style={{ marginBottom: '20px' }}>
-                <button
-                  onClick={async () => {
-                    // Sync current wishlist to public collection
-                    const wlRef = doc(db, 'wishlists', user.uid)
-                    await setDoc(wlRef, {
-                      items: wishlist,
-                      ownerName: profile?.name || user?.displayName || '',
-                      updatedAt: serverTimestamp(),
-                    }, { merge: false }).catch(() => {})
-                    const link = `${window.location.origin}/wishlist/${user.uid}`
-                    navigator.clipboard.writeText(link).catch(() => {})
-                    setWlCopied(true)
-                    setTimeout(() => setWlCopied(false), 2000)
-                  }}
-                  style={{ ...toggleStyle(false), fontSize: '10px', padding: '8px 16px' }}
-                >
-                  {wlCopied ? '✓ Link copied!' : '⎘ Share Wishlist'}
-                </button>
-              </div>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {wishlist.map(item => (
-                  <li key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e8e0d4', paddingBottom: '12px', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      {item.image
-                        ? <img src={item.image} alt={item.name} loading="lazy" style={{ width: '40px', height: '40px', objectFit: 'cover', flexShrink: 0 }} />
-                        : <span style={{ fontSize: '1.5rem' }}>{item.emoji}</span>
-                      }
-                      <div>
-                        <p style={{ fontFamily: 'serif', fontSize: '1rem', margin: 0, color: 'rgb(var(--color-ink))' }}>{item.name}</p>
-                        <p style={{ fontFamily: 'monospace', fontSize: '12px', color: 'rgb(var(--color-warm-gray))', margin: 0 }}>${item.price}</p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={() => navigate(`/shop/${item.slug}`)} style={{ ...toggleStyle(false), padding: '6px 12px', fontSize: '10px' }}>View</button>
-                      <button onClick={() => { if (window.confirm(`Remove "${item.name}" from wishlist?`)) removeFromWishlist(item.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: '12px', color: '#b94040' }}>✕</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
         </div>
       )}
 

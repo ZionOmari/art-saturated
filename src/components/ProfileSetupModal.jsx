@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, normalizeTypes } from '../context/AuthContext'
 
-const STEPS = ['name', 'type', 'artist', 'done']
 
 const inp = {
   width: '100%', fontFamily: 'monospace', fontSize: '14px',

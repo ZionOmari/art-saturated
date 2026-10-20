@@ -4,7 +4,6 @@ import { db } from '../lib/firebase'
 import { useAuth } from '../context/AuthContext'
 import Spinner from './Spinner'
 
-const TYPES = ['bug', 'suggestion']
 
 export default function FeedbackBubble() {
   const { user, profile } = useAuth()

@@ -107,7 +107,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Right column — Random shop, with Enigma preorder backdrop + hover reveal */}
+        {/* Right column — random picks from the shop */}
         {randomProducts.length > 0 && (
           <div className="hidden xl:flex" style={{
             position: 'absolute', right: '20px', top: 0, bottom: 0,

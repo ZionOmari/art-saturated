@@ -6,7 +6,6 @@
 //   disc, panel0 (front), panel1..panel3, tray (jewel back)
 // It is a layout guide, not a colour proof.
 
-const INK   = '#1a1814'
 const LABEL = { fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8a857d', textAlign: 'center', marginTop: '6px' }
 
 function Art({ url, label, style }) {

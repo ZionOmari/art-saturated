@@ -1,52 +1,20 @@
-import { addDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
-import { db, auth } from './firebase'
+import { requestAndWait } from './firestoreRequest'
 
 /**
  * Writes a checkout request to Firestore and waits for the
  * Firestore-triggered Cloud Function to respond with a Stripe URL.
  * This avoids all HTTP IAM restrictions.
  */
-function waitForCheckoutUrl(data) {
-  return new Promise(async (resolve, reject) => {
-    const uid = auth.currentUser?.uid
-    if (!uid) return reject(new Error('You must be signed in to checkout.'))
-
-    let docRef
-    try {
-      docRef = await addDoc(collection(db, 'checkoutRequests'), {
-        ...data,
-        uid,
-        status: 'pending',
-        url: null,
-        error: null,
-        createdAt: serverTimestamp(),
-      })
-      console.log('checkout doc created:', docRef.id)
-    } catch (err) {
-      console.error('addDoc failed:', err.code, err.message)
-      return reject(new Error('Could not start checkout: ' + (err.code || err.message)))
-    }
-
-    const timeout = setTimeout(() => {
-      unsub()
-      reject(new Error('Checkout timed out — please try again. If the problem persists, contact us.'))
-    }, 130000)
-
-    const unsub = onSnapshot(docRef, (snap) => {
-      const d = snap.data()
-      if (!d) return
-      if (d.status === 'ready' && d.url) {
-        clearTimeout(timeout)
-        unsub()
-        window.location.href = d.url
-        resolve()
-      } else if (d.status === 'error') {
-        clearTimeout(timeout)
-        unsub()
-        reject(new Error(d.error || 'Checkout failed.'))
-      }
-    })
+async function waitForCheckoutUrl(data) {
+  const { data: d } = await requestAndWait('checkoutRequests', { ...data, url: null, error: null }, {
+    timeoutMs:    130000,
+    signInError:  'You must be signed in to checkout.',
+    startError:   'Could not start checkout',
+    timeoutError: 'Checkout timed out — please try again. If the problem persists, contact us.',
+    failError:    'Checkout failed.',
   })
+  if (!d.url) throw new Error('Checkout failed — no payment page was returned.')
+  window.location.href = d.url
 }
 
 export async function checkoutCart({ items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, bundleDiscount, shippingQuoteId, shippingRateId }) {

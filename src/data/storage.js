@@ -1,7 +1,7 @@
 import {
   collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, query, orderBy, where, limit as limitQ,
-  serverTimestamp, runTransaction, setDoc,
+  doc, query, orderBy, where,
+  serverTimestamp, runTransaction,
 } from 'firebase/firestore'
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, listAll, getMetadata } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'

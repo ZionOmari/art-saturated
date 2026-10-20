@@ -104,7 +104,7 @@ exports.onCheckoutRequestCreated = fn({ timeoutSeconds: 120 })
     }
 
     try {
-      const { items, customerEmail, orderId, shippingCost, shippingMethod, taxAmount, type } = data
+      const { items, customerEmail, orderId, shippingMethod, taxAmount, type } = data
       const key = process.env.STRIPE_SECRET_KEY
       console.log('Stripe key present:', !!key, 'type:', type)
 
@@ -1820,7 +1820,6 @@ exports.onAiRequestCreated = fn({ timeoutSeconds: 120, memory: '512MB' })
   .firestore.document('aiRequests/{id}')
   .onCreate(async (snap) => {
     const req = snap.data() || {}
-    const db  = admin.firestore()
     const payload = req.payload || {}
     try {
       if (req.type !== 'discogs') throw new Error('Unknown request type: ' + req.type)

@@ -9,14 +9,12 @@ import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 import ShippingRates from '../components/ShippingRates'
 
-// Fallback shipping tiers (oz → price)
-const DEFAULT_TIERS = [4.99, 7.99, 12.99, 18.99]
 const DEFAULT_TAX   = 0.07
 
 export default function CartPage() {
   useEffect(() => { document.title = 'Your Cart — Art Saturated'; return () => { document.title = 'Art Saturated' } }, [])
   const navigate = useNavigate()
-  const { cart, cartTotal, updateQty, removeFromCart, clearCart, atMax, hydrateCart } = useCart()
+  const { cart, cartTotal, updateQty, removeFromCart, atMax, hydrateCart } = useCart()
   const { user, profile, placeOrder } = useAuth()
 
   const [loading,          setLoading]          = useState(false)
@@ -75,12 +73,6 @@ export default function CartPage() {
 
   const isEmpty = cart.length === 0
 
-  const totalWeightOz = useMemo(
-    () => cart.reduce((sum, i) => sum + (Number(i.weightOz) || 0) * i.qty, 0),
-    [cart],
-  )
-
-  const tiers    = storeConfig?.shippingTiers ?? DEFAULT_TIERS
   const TAX_RATE = storeConfig?.taxRate ?? DEFAULT_TAX
   const bundleDeal = storeConfig?.bundleDeal
 

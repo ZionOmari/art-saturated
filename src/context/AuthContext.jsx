@@ -11,7 +11,6 @@ import {
 import {
   doc, setDoc, getDoc, onSnapshot, serverTimestamp,
   collection, addDoc, query, where, getDocs, orderBy,
-  arrayUnion, arrayRemove,
 } from 'firebase/firestore'
 import { auth, db, googleProvider } from '../lib/firebase'
 
@@ -187,32 +186,6 @@ export function AuthProvider({ children }) {
     setProfile(prev => ({ ...prev, ...updates }))
   }
 
-  // ── Wishlist ──────────────────────────────────────────────────────────────
-  async function addToWishlist(product) {
-    if (!user) return
-    const ref    = doc(db, 'users', user.uid)
-    const wlRef  = doc(db, 'wishlists', user.uid)
-    const item   = { id: product.id, slug: product.slug, name: product.name, price: product.price, emoji: product.emoji || '🛍️', image: product.image || null }
-    const ownerName = profile?.name || user.displayName || ''
-    await setDoc(ref, { wishlist: arrayUnion(item) }, { merge: true })
-    setDoc(wlRef, { items: arrayUnion(item), ownerName, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {})
-    setProfile(prev => ({ ...prev, wishlist: [...(prev?.wishlist || []).filter(w => w.id !== item.id), item] }))
-  }
-
-  async function removeFromWishlist(productId) {
-    if (!user) return
-    const ref      = doc(db, 'users', user.uid)
-    const wlRef    = doc(db, 'wishlists', user.uid)
-    const existing = profile?.wishlist?.find(w => w.id === productId)
-    if (!existing) return
-    await setDoc(ref, { wishlist: arrayRemove(existing) }, { merge: true })
-    setDoc(wlRef, { items: arrayRemove(existing), updatedAt: serverTimestamp() }, { merge: true }).catch(() => {})
-    setProfile(prev => ({ ...prev, wishlist: (prev?.wishlist || []).filter(w => w.id !== productId) }))
-  }
-
-  function inWishlist(productId) {
-    return (profile?.wishlist || []).some(w => w.id === productId)
-  }
 
   // ── Orders ────────────────────────────────────────────────────────────────
   async function placeOrder(cart, subtotal, shippingMethod = 'ship', shippingCost = 0, taxAmount = 0, shippingAddress = null, bundleDiscount = 0) {
@@ -277,7 +250,6 @@ export function AuthProvider({ children }) {
       user, profile, setProfile, loading,
       signUp, signIn, signInWithGoogle, logOut,
       updateNotifyPrefs, updateDisplayName, updateArtistProfile, switchAccountType, setAccountTypes, completeProfileSetup,
-      addToWishlist, removeFromWishlist, inWishlist,
       placeOrder, fetchOrders, fetchSellerOrders,
     }}>
       {!loading && children}

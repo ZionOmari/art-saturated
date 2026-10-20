@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, getDocs, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { addSlot, getSlots, removeSlot, isShopHour, loadShopHours, saveShopHours, DEFAULT_SHOP_HOURS, blockTime, getAllBlockedTimes, unblockTime } from '../data/booking'
+import { addSlot, getSlots, isShopHour, loadShopHours, saveShopHours, DEFAULT_SHOP_HOURS, blockTime, getAllBlockedTimes } from '../data/booking'
 import { addTask, getTasksForRange } from '../data/tasks'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -181,7 +181,7 @@ export default function ScheduleManager() {
       const end        = addDays(startFrom, lookahead * 7)
       const biweek     = tpl.frequency === 'biweekly'
 
-      let added = 0, removed = 0, skipped = 0
+      let added = 0, skipped = 0
       let cur = new Date(startFrom)
 
       // For availability: track existing slots to skip duplicates

@@ -80,7 +80,6 @@ const QuoteRequestPage  = lazy(() => import('./pages/QuoteRequestPage'))
 // Sept 2026; its old URL /order/cd redirects to it.
 //   /mystery        MysteryPage        mystery record / crate builder
 //   /preorder/:slug PreorderPage       removed: Enigma now sells as a product
-//   /wishlist/:uid  WishlistPage       public wishlist sharing
 
 function SetupGate() {
   const { profile } = useAuth()
@@ -162,7 +161,6 @@ function useGradientDrift() {
 }
 
 export default function App() {
-  const location = useLocation()
   useGradientDrift()
 
   // GA4 — injected dynamically so the script only loads when VITE_GA4_ID is set.
