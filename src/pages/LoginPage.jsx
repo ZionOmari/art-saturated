@@ -21,12 +21,20 @@ const btn = (gold) => ({
   marginBottom: '10px',
 })
 
+// `from` can arrive in the URL (?from=), so anyone can craft a login link.
+// Only same-site paths are honoured: "//evil.com" and "/\evil.com" are read by
+// browsers as another site, which would make our login page an open redirect.
+function safeReturnPath(p) {
+  if (typeof p !== 'string' || !p.startsWith('/') || /^\/[\/\\]/.test(p) || /[\u0000-\u001f\\]/.test(p)) return '/account'
+  return p
+}
+
 export default function LoginPage() {
   const { signIn, signUp, signInWithGoogle } = useAuth()
   const navigate  = useNavigate()
   const location  = useLocation()
   const [searchParams] = useSearchParams()
-  const from      = location.state?.from || searchParams.get('from') || '/account'
+  const from      = safeReturnPath(location.state?.from || searchParams.get('from'))
 
   const [mode,     setMode]     = useState('signin') // 'signin' | 'signup'
   const [email,    setEmail]    = useState('')
