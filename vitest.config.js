@@ -16,10 +16,8 @@ export default defineConfig({
       'firebase-admin': fromFunctions('firebase-admin'),
       'firebase-functions/v1': fromFunctions('firebase-functions/lib/v1'),
       'firebase-functions': fromFunctions('firebase-functions'),
-      '@google/genai': fromFunctions('@google/genai'),
       nodemailer: fromFunctions('nodemailer'),
       stripe: fromFunctions('stripe'),
-      sharp: fromFunctions('sharp'),
     },
   },
   test: {

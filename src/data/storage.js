@@ -26,10 +26,8 @@ async function getNextCounter(docId) {
 }
 
 export const getNextItemNumber       = () => getNextCounter('products')
-export const getNextSubmissionNumber = () => getNextCounter('submissions')
 
 export function formatItemNumber(n)       { return `AS-${String(n).padStart(4, '0')}` }
-export function formatSubmissionNumber(n) { return `SB-${String(n).padStart(4, '0')}` }
 
 // ── Products — Firestore ─────────────────────────────────────────────────────
 
@@ -80,12 +78,6 @@ export async function fetchRecentArt(n = 12) {
     console.error('[fetchRecentArt] failed:', err)
     return []
   }
-}
-
-// Mystery-facing fetch — only active Mystery category products
-export async function fetchMysteryProducts() {
-  const all = await fetchAllProducts()
-  return all.filter(p => p.active !== false && p.category === 'Mystery').sort((a, b) => (a.crateSize ?? 1) - (b.crateSize ?? 1))
 }
 
 export async function addProduct(data) {

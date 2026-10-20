@@ -274,8 +274,6 @@ function Profile() {
   const [blogTitle,      setBlogTitle]      = useState('')
   const [blogBody,       setBlogBody]       = useState('')
   const [blogBusy,       setBlogBusy]       = useState(false)
-  const [submissions,        setSubmissions]        = useState([])
-  const [subsLoading,        setSubsLoading]        = useState(false)
   const [commissionRequests, setCommissionRequests] = useState([])
   const [commReqLoading,     setCommReqLoading]     = useState(false)
   const [collectorRequests,  setCollectorRequests]  = useState([])
@@ -295,18 +293,6 @@ function Profile() {
 
   useEffect(() => {
   }, [tab, user?.email])
-
-  useEffect(() => {
-    if (tab !== 'submissions' || !user) return
-    setSubsLoading(true)
-    getDocs(query(
-      collection(db, 'submissions'),
-      where('uid', '==', user.uid),
-      orderBy('submittedAt', 'desc'),
-    )).then(snap => {
-      setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }).catch(e => console.error('submissions query failed:', e.code || e.message)).finally(() => setSubsLoading(false))
-  }, [tab, user])
 
   useEffect(() => {
     if (tab !== 'commissions' || !user) return
@@ -450,7 +436,6 @@ function Profile() {
         <button style={tabBtn(tab === 'activity')}    onClick={() => setTab('activity')}>Activity</button>
         {isCreator && (
           <>
-            <button style={tabBtn(tab === 'submissions')} onClick={() => setTab('submissions')}>Submissions</button>
             <button style={tabBtn(tab === 'commissions')} onClick={() => setTab('commissions')}>Commissions</button>
             <button style={tabBtn(tab === 'blog')} onClick={() => setTab('blog')}>Blog</button>
           </>
@@ -694,84 +679,6 @@ function Profile() {
                 ))}
               </ul>
             </>
-          )}
-        </div>
-      )}
-
-      {/* ── Submissions (creator) ──────────────────────────────── */}
-      {tab === 'submissions' && (
-        <div>
-          <button onClick={() => navigate('/gallery-upload')} className="btn-outline mb-8" style={{ display: 'inline-block' }}>
-            + Submit New Art
-          </button>
-          {subsLoading && <div className="py-4 flex justify-center"><Spinner size={20} color="#3d2810" /></div>}
-          {!subsLoading && submissions.length === 0 && (
-            <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-warm-gray))' }}>
-              No submissions yet. Submit your first piece to get it listed in the shop.
-            </p>
-          )}
-          {!subsLoading && submissions.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {submissions.map(sub => {
-                // pending_payment only exists on submissions predating the $1 fee's
-                // removal. There is no payment to make any more, so don't ask for one.
-                const statusLabel = { pending_payment: 'Needs review — contact us', pending_review: 'Under Review', approved: 'Live in Shop', rejected: 'Rejected' }[sub.status] || sub.status
-                const sColor = { pending_payment: '#b97a30', pending_review: '#4a7a9b', approved: '#3a7a40', rejected: '#b94040' }[sub.status] || 'rgb(var(--color-warm-gray))'
-                const sbNum = sub.submissionNumber ? `SB-${String(sub.submissionNumber).padStart(4,'0')}` : null
-                return (
-                  <div key={sub.id} style={{ border: '1px solid #e8e0d4', padding: '12px', background: 'rgb(var(--color-paper))' }}>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      {sub.imageURL && (
-                        <img src={sub.imageURL} alt={sub.title} style={{ width: '56px', height: '56px', objectFit: 'cover', flexShrink: 0 }} />
-                      )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-                          <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', margin: '0 0 2px', fontWeight: 500 }}>{sub.title}</p>
-                          {sbNum && <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#b97a30', flexShrink: 0 }}>{sbNum}</span>}
-                        </div>
-                        <p style={{ fontFamily: 'monospace', fontSize: '11px', color: 'rgb(var(--color-warm-gray))', margin: '0 0 6px' }}>
-                          ${sub.price} · {sub.category}
-                        </p>
-                        <span style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: sColor, border: `1px solid ${sColor}`, padding: '2px 8px' }}>
-                          {statusLabel}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Rejection feedback from admin */}
-                    {sub.status === 'rejected' && sub.rejectionFeedback && (
-                      <div style={{ marginTop: '10px', padding: '10px 12px', background: 'rgba(185,64,64,0.05)', border: '1px solid rgba(185,64,64,0.2)' }}>
-                        <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b94040', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Feedback</p>
-                        <p style={{ fontFamily: 'monospace', fontSize: '12px', color: 'rgb(var(--color-warm-gray))', margin: 0, lineHeight: '1.6' }}>{sub.rejectionFeedback}</p>
-                      </div>
-                    )}
-                    {/* Admin responded to feedback request */}
-                    {sub.feedbackAnswered && sub.adminFeedback && (
-                      <div style={{ marginTop: '10px', padding: '10px 12px', background: 'rgba(185,122,48,0.05)', border: '1px solid rgba(185,122,48,0.25)' }}>
-                        <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#b97a30', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Team Feedback</p>
-                        <p style={{ fontFamily: 'monospace', fontSize: '12px', color: 'rgb(var(--color-warm-gray))', margin: 0, lineHeight: '1.6' }}>{sub.adminFeedback}</p>
-                      </div>
-                    )}
-                    {/* Request feedback button — shown on rejections without feedback */}
-                    {sub.status === 'rejected' && !sub.rejectionFeedback && !sub.feedbackRequested && !sub.feedbackAnswered && (
-                      <button
-                        onClick={async () => {
-                          await updateDoc(doc(db, 'submissions', sub.id), { feedbackRequested: true }).catch(() => {})
-                          setSubmissions(prev => prev.map(s => s.id === sub.id ? { ...s, feedbackRequested: true } : s))
-                        }}
-                        style={{ marginTop: '10px', fontFamily: 'monospace', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '5px 12px', background: 'transparent', color: '#b94040', border: '1px solid #b94040', cursor: 'pointer' }}
-                      >
-                        Request Feedback
-                      </button>
-                    )}
-                    {sub.feedbackRequested && !sub.feedbackAnswered && (
-                      <p style={{ marginTop: '8px', fontFamily: 'monospace', fontSize: '11px', color: '#b97a30' }}>
-                        ↳ Feedback requested — we'll follow up by email.
-                      </p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           )}
         </div>
       )}
@@ -1125,7 +1032,7 @@ function Profile() {
               <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>List Your Work</p>
             </div>
             <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', marginBottom: '20px', lineHeight: '1.75' }}>
-              Submit original work, prints, or any physical media to be listed in the shop. Every submission goes through a 48-hour review.
+              List original work, prints, sculpture or clothing in the shop. Listings go live as soon as you upload them.
             </p>
 
             <div style={{ border: '1px solid #e8e0d4', padding: '20px', marginBottom: '24px', background: 'rgb(var(--color-paper))' }}>
@@ -1134,7 +1041,6 @@ function Profile() {
                 {[
                   ['10% commission', 'on listed sales through the shop'],
                   ['$7.99/month', 'membership — unlimited uploads, no per-listing fee'],
-                  ['48hr review', 'every submission is personally reviewed'],
                   ['0% on commissions', 'custom work is arranged directly — no platform cut'],
                 ].map(([term, desc]) => (
                   <div key={term} style={{ display: 'flex', gap: '16px', alignItems: 'baseline' }}>
@@ -1149,10 +1055,10 @@ function Profile() {
               Upload Your Work →
             </button>
             <button
-              onClick={() => setTab('submissions')}
+              onClick={() => navigate(`/artists/${user.uid}`)}
               style={{ marginLeft: '16px', fontFamily: 'monospace', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgb(var(--color-warm-gray))', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
             >
-              View Submissions
+              View Your Listings
             </button>
           </div>
 

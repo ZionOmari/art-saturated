@@ -190,25 +190,15 @@ describe('artist membership', () => {
     await assertSucceeds(updateDoc(doc(buyer(), 'users/buyer1'), { artistBio: 'I paint.' }))
   })
 
-  it('blocks uploading without an active membership', async () => {
-    await seed('users/buyer1', { ...ARTIST, artistSubActive: false })
-    await assertFails(setDoc(doc(buyer(), 'submissions/s1'), {
+  it('keeps the retired submissions collection closed to every client', async () => {
+    // Uploads publish straight to products now (see 'seller listings'); the old
+    // review queue is gone, so even a paid-up member can't write or read it.
+    await seed('users/buyer1', { ...ARTIST, artistSubActive: true })
+    await seed('submissions/old', { uid: 'buyer1', title: 'Untitled', status: 'approved' })
+    await assertFails(setDoc(doc(buyer(), 'submissions/s2'), {
       uid: 'buyer1', title: 'Untitled', status: 'pending_review',
     }))
-  })
-
-  it('allows uploading with an active membership', async () => {
-    await seed('users/buyer1', { ...ARTIST, artistSubActive: true })
-    await assertSucceeds(setDoc(doc(buyer(), 'submissions/s2'), {
-      uid: 'buyer1', title: 'Untitled', status: 'pending_review',
-    }))
-  })
-
-  it('stops a member uploading work under someone else\'s uid', async () => {
-    await seed('users/buyer1', { ...ARTIST, artistSubActive: true })
-    await assertFails(setDoc(doc(buyer(), 'submissions/s3'), {
-      uid: 'someone-else', title: 'Untitled', status: 'pending_review',
-    }))
+    await assertFails(getDoc(doc(buyer(), 'submissions/old')))
   })
 })
 

@@ -21,53 +21,14 @@ export async function getArtistBySlug(slug) {
   return getArtistProfile(uid)
 }
 
-/** All approved submissions for one artist, newest first.
- *  Returns [] silently if the viewer lacks read permission (e.g. not logged in). */
-export async function getArtistWork(uid) {
-  try {
-    const snap = await getDocs(query(collection(db, 'submissions'), where('uid', '==', uid)))
-    return snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(s => s.status === 'approved')
-      .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))
-  } catch {
-    return []
-  }
-}
-
 /**
- * Load all public artists AND their work from both submissions + products.
- * Products are public-readable; submissions are silently skipped if no auth.
+ * Load all public artists and their active, published products.
  */
 export async function getArtistsWithWork() {
   const artists = await getPublicArtists()
   if (artists.length === 0) return []
 
   const artistUids = artists.map(a => a.uid)
-
-  // ── Submissions (may be denied for unauthenticated visitors) ─────────────
-  const subByUid = {}
-  try {
-    const subSnap = await getDocs(
-      query(collection(db, 'submissions'), where('status', '==', 'approved'))
-    )
-    subSnap.docs.forEach(d => {
-      const s = { id: d.id, ...d.data() }
-      if (!subByUid[s.uid]) subByUid[s.uid] = []
-      subByUid[s.uid].push(s)
-    })
-  } catch {
-    // Unauthenticated — fall through to products-only
-  }
-
-  // Pieces already represented by a submission, per artist — used to dedupe their
-  // approved product so a viewer who CAN read submissions doesn't see it twice.
-  // Public viewers have an empty subByUid, so submission-sourced products stay
-  // visible (otherwise their work would never appear in the directory).
-  const subProductIdsByUid = {}
-  Object.entries(subByUid).forEach(([u, subs]) => {
-    subProductIdsByUid[u] = new Set(subs.map(s => s.productId).filter(Boolean))
-  })
 
   // ── Products (public read) — chunk into groups of 30 for 'in' query ──────
   const prodByUid = {}
@@ -81,7 +42,6 @@ export async function getArtistsWithWork() {
       const p = { id: d.id, ...d.data() }
       if (!p.active || p.inBucket) return
       const uid = p.artistUid
-      if (subProductIdsByUid[uid]?.has(p.id)) return  // already shown via its submission
       if (!prodByUid[uid]) prodByUid[uid] = []
       const imgArr = Array.isArray(p.imageURLs) ? p.imageURLs
                    : Array.isArray(p.images)    ? p.images : null
@@ -97,15 +57,8 @@ export async function getArtistsWithWork() {
     })
   }))
 
-  return artists.map(a => {
-    const subs  = (subByUid[a.uid]  || []).sort((x, y) => (y.submittedAt?.seconds || 0) - (x.submittedAt?.seconds || 0))
-    const prods = (prodByUid[a.uid] || []).sort((x, y) => (y.submittedAt?.seconds || 0) - (x.submittedAt?.seconds || 0))
-    // Merge, deduplicate, submissions first
-    const seen = new Set()
-    const work = [...subs, ...prods].filter(w => {
-      if (seen.has(w.id)) return false
-      seen.add(w.id); return true
-    })
-    return { ...a, work }
-  })
+  return artists.map(a => ({
+    ...a,
+    work: (prodByUid[a.uid] || []).sort((x, y) => (y.submittedAt?.seconds || 0) - (x.submittedAt?.seconds || 0)),
+  }))
 }

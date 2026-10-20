@@ -121,22 +121,6 @@ service cloud.firestore {
       allow read:  if isAdmin();
       allow write: if false;
     }
-    // Art submissions — users read own + can flip feedbackRequested; admin reads/updates all
-    match /submissions/{submissionId} {
-      allow read: if request.auth != null &&
-        (resource.data.uid == request.auth.uid || isAdmin());
-      // Uploading requires an active artist membership. Enforced here and not
-      // only in the UI, so the paywall cannot be bypassed by writing directly.
-      allow create: if request.auth != null
-        && request.resource.data.uid == request.auth.uid
-        && get(/databases/$(database)/documents/users/$(request.auth.uid))
-             .data.artistSubActive == true;
-      allow update: if isAdmin() ||
-        // Artist can only flip feedbackRequested on their own rejected submission
-        (request.auth != null && resource.data.uid == request.auth.uid
-          && resource.data.status == 'rejected'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedbackRequested']));
-    }
     // Products — public read. The owner writes anything; a paid-up seller may
     // publish their own listing straight to the shop (no approval step) and edit
     // it afterwards, within a strict field allowlist.
@@ -206,7 +190,7 @@ service cloud.firestore {
       allow update: if isAdmin();
       allow delete: if false;
     }
-    // Counters — admin write; any auth user can increment via transaction (item + submission numbers)
+    // Counters — admin write; any auth user can increment via transaction (item numbers)
     match /counters/{counterId} {
       allow read, write: if request.auth != null;
     }
@@ -259,21 +243,6 @@ service cloud.firestore {
       allow update: if isAdmin(); // needed for cancelBooking (sets status: 'cancelled')
       allow delete: if false;
     }
-    // Events calendar — public read for EventsPage, admin-only write
-    match /events/{eventId} {
-      allow read:  if true;
-      allow write: if isAdmin();
-    }
-    // Event submissions — users submit and read own; admin reads/approves all
-    match /eventSubmissions/{subId} {
-      allow create: if request.auth != null;
-      allow read:   if request.auth != null &&
-        (resource.data.uid == request.auth.uid || isAdmin());
-      allow update: if isAdmin() ||
-        (request.auth != null && resource.data.uid == request.auth.uid);
-      allow delete: if isAdmin() ||
-        (request.auth != null && resource.data.uid == request.auth.uid);
-    }
     // Tasks — admin daily planner, scheduling dots on calendar
     match /tasks/{taskId} {
       allow read, write: if isAdmin();
@@ -282,48 +251,6 @@ service cloud.firestore {
     match /scheduleTemplates/{templateId} {
       allow read, write: if isAdmin();
     }
-    // Blog / magazine submissions — anyone can submit; admin reviews.
-    // Approved articles are public (the magazine); pending/rejected stay private.
-    match /blogSubmissions/{subId} {
-      allow create: if true;
-      allow read:   if resource.data.status == 'approved'
-                    || isAdmin()
-                    || (request.auth != null && resource.data.uid == request.auth.uid);
-      allow update, delete: if isAdmin();
-    }
-    // Event recap photos — anyone can submit; admin approves; public reads approved only;
-    // the event's original submitter can read all (pending + approved) for their own event
-    match /eventRecaps/{eventId}/photos/{photoId} {
-      allow create: if true;
-      allow read:   if resource.data.approved == true
-                    || isAdmin()
-                    || (request.auth != null
-                        && exists(/databases/$(database)/documents/events/$(eventId))
-                        && get(/databases/$(database)/documents/events/$(eventId)).data.submitterUid == request.auth.uid);
-      allow update, delete: if isAdmin();
-    }
-    // Preorders — user reads own; admin reads/writes all
-    match /preorders/{preorderId} {
-      allow read:          if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());
-      allow create, update: if isAdmin();
-    }
-    // Album preorder listings — public read (the /preorder/:slug page), admin write
-    match /albumPreorders/{slug} {
-      allow read:  if true;
-      allow write: if isAdmin();
-    }
-    // Artist interviews — token IS the document ID; knowing the URL grants access.
-    // Admin can fully manage; anyone can read (to fill the form) and submit responses.
-    match /interviews/{token} {
-      allow read:   if true;
-      allow create: if isAdmin();
-      allow update: if isAdmin()
-        // Artist submitting their own responses — only these fields allowed
-        || request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['responses', 'status', 'respondedAt']);
-      allow delete: if isAdmin();
-    }
-
     // Feedback / bug reports (FeedbackBubble.jsx) — anyone can submit; admin reads/manages
     match /feedback/{fbId} {
       allow create: if true;
@@ -354,22 +281,6 @@ service cloud.firestore {
     // Private personal-collection archive — fully admin-only, never public.
     match /archive/{itemId} {
       allow read, write: if isAdmin();
-    }
-
-    // Daily AI content ideas — written by a Cloud Function, admin reads.
-    match /contentIdeas/{dayId} {
-      allow read: if isAdmin();
-    }
-
-    // Workshop RSVPs — anyone can submit (guest or signed-in); admin reads/manages
-    match /workshopRsvps/{rsvpId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
-    }
-
-    // Workshop 1:1 bookings — written by Stripe webhook (Admin SDK); admin reads
-    match /workshopBookings/{bookingId} {
-      allow read, update, delete: if isAdmin();
     }
 
     // Artist slug uniqueness index — document ID is the slug string, value is { uid }.

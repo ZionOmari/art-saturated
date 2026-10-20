@@ -39,7 +39,7 @@ async function wipe(...names) {
 beforeEach(async () => {
   sentMail.length = 0
   stripeLineItems.length = 0
-  await wipe('orders', 'products', 'stripeSessions', 'orphanedPayments', 'submissions', 'blogSubmissions')
+  await wipe('orders', 'products', 'stripeSessions', 'orphanedPayments', 'submissions', 'blogSubmissions', 'preorders', 'workshopBookings')
 })
 
 // Minimal shape of a Stripe Checkout Session as handlePaidSession reads it.
@@ -192,16 +192,31 @@ describe('handlePaidSession — settlement', () => {
     expect(sentMail.some(m => m.to === 'zionomari@artsaturated.com' && m.subject.includes('outside the shop'))).toBe(true)
   })
 
-  it('still resolves a magazine article fee from client_reference_id', async () => {
-    // The blog fee shares the inference path and must keep working.
+  it('treats a payment through the retired magazine-fee link as an orphan', async () => {
+    // The magazine was removed in Aug 2026 and its fee inference with it in
+    // Oct 2026. An old Payment Link payment must surface, not settle silently.
     await db.doc('blogSubmissions/blog1').set({ title: 'Piece', status: 'pending_payment' })
 
-    await handlePaidSession(session({ metadata: {}, client_reference_id: 'blog1' }))
+    const s = session({ metadata: {}, client_reference_id: 'blog1', payment_link: 'plink_magazine' })
+    await handlePaidSession(s)
 
     const blog = (await db.doc('blogSubmissions/blog1').get()).data()
-    expect(blog.feePaid).toBe(true)
-    expect(blog.status).toBe('pending_review')
-    expect((await db.collection('orphanedPayments').get()).size).toBe(0)
+    expect(blog.status).toBe('pending_payment')      // untouched
+    expect(blog.feePaid).toBeUndefined()
+    expect((await db.doc(`orphanedPayments/${s.id}`).get()).exists).toBe(true)
+  })
+
+  it('treats retired preorder and workshop-deposit sessions as orphans', async () => {
+    // Both checkout types were removed. A late or replayed session carrying
+    // their metadata must be recorded for refund, not dropped or settled.
+    for (const type of ['preorder', 'workshop_deposit', 'blog_submission']) {
+      const s = session({ metadata: { type } })
+      await handlePaidSession(s)
+      const orphan = (await db.doc(`orphanedPayments/${s.id}`).get()).data()
+      expect(orphan, type).toBeTruthy()
+    }
+    expect((await db.collection('preorders').get()).size).toBe(0)
+    expect((await db.collection('workshopBookings').get()).size).toBe(0)
   })
 })
 

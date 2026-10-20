@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { addDoc, collection, getDocs, getDoc, doc, query, where, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, getDocs, query, where, serverTimestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { getArtistProfile, getArtistWork, getArtistBySlug } from '../data/artists'
+import { getArtistProfile, getArtistBySlug } from '../data/artists'
 import { getPublishedPosts } from '../data/blogPosts'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
@@ -79,27 +79,12 @@ export default function ArtistProfilePage() {
         const uid = prof?.uid
         if (!uid) { setArtist(null); setWork([]); setLoading(false); return }
 
-        const [submissionWork, productSnap, blogPosts] = await Promise.all([
-          getArtistWork(uid),
+        const [productSnap, blogPosts] = await Promise.all([
           getDocs(query(collection(db, 'products'), where('artistUid', '==', uid))),
           getPublishedPosts(uid).catch(() => []),
         ])
 
-        const enrichedSubs = await Promise.all(
-          submissionWork.map(async s => {
-            if (!s.productId) return s
-            try {
-              const snap = await getDoc(doc(db, 'products', s.productId))
-              if (!snap.exists()) return s
-              const p = { id: snap.id, ...snap.data() }
-              return { ...s, slug: p.slug || null, sold: p.sold || false, productData: p }
-            } catch { return s }
-          })
-        )
-
-        const subProductIds = new Set(submissionWork.map(s => s.productId).filter(Boolean))
-
-        const productWork = productSnap.docs
+        const merged = productSnap.docs
           .map(d => {
             const p = { id: d.id, ...d.data() }
             const imgArr = Array.isArray(p.imageURLs) ? p.imageURLs
@@ -112,11 +97,7 @@ export default function ArtistProfilePage() {
               source: p.source || '', sold: p.sold || false, productData: p,
             }
           })
-          .filter(p => p.active && !subProductIds.has(p.id))
-
-        const seen = new Set()
-        const merged = [...enrichedSubs, ...productWork]
-          .filter(w => { if (seen.has(w.id)) return false; seen.add(w.id); return true })
+          .filter(p => p.active)
           .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))
 
         setArtist(prof)

@@ -3,7 +3,6 @@ const admin     = require('firebase-admin')
 const { FieldValue } = require('firebase-admin/firestore')  // modular import — `admin.firestore.FieldValue` resolves undefined under the Functions emulator
 const nodemailer = require('nodemailer')
 const Stripe    = require('stripe')
-const sharp     = require('sharp')
 
 admin.initializeApp()
 
@@ -299,127 +298,6 @@ exports.onCheckoutRequestCreated = fn({ timeoutSeconds: 120 })
         return
       }
 
-      // ── Blog / magazine article submission fee ──────────────────────────────
-      if (type === 'blog') {
-        const configSnap = await admin.firestore().doc('settings/storeConfig').get()
-        const blogFee = configSnap.exists ? (configSnap.data().blogSubmissionFee ?? 0) : 0
-
-        if (!blogFee || Number(blogFee) <= 0) {
-          // No fee — mark as pending_review immediately
-          if (data.submissionId) {
-            await admin.firestore().collection('blogSubmissions').doc(data.submissionId).update({
-              status: 'pending_review', feePaid: true,
-            }).catch(() => {})
-          }
-          await safeUpdate({ status: 'ready', url: `${CLIENT_URL}/payment-success?type=blog` })
-          return
-        }
-
-        const session = await s.checkout.sessions.create({
-          payment_method_types: ['card'],
-          mode: 'payment',
-          line_items: [{
-            price_data: {
-              currency: 'usd',
-              unit_amount: Math.round(Number(blogFee) * 100),
-              product_data: { name: `Article Submission — Art Saturated Magazine` },
-            },
-            quantity: 1,
-          }],
-          customer_email: data.customerEmail || undefined,
-          success_url: `${CLIENT_URL}/payment-success?type=blog`,
-          cancel_url:  `${CLIENT_URL}/blog-submit`,
-          metadata: { submissionId: data.submissionId || '', type: 'blog_submission' },
-        })
-        await safeUpdate({ status: 'ready', url: session.url })
-        return
-      }
-
-      if (type === 'preorder') {
-        const albumSlug = data.albumSlug || 'enigma'
-        const albumName = data.albumName || 'Album'
-        const artistName = data.artistName || ''
-
-        // Look up authoritative price from Firestore
-        let albumPrice = 1000 // fallback $10.00 in cents
-        try {
-          const albumSnap = await admin.firestore().doc(`albumPreorders/${albumSlug}`).get()
-          if (albumSnap.exists) {
-            albumPrice = Math.round((albumSnap.data().price ?? 10) * 100)
-          }
-        } catch (e) { /* use fallback */ }
-
-        const lineItemLabel = artistName
-          ? `${albumName} — Album Preorder (${artistName})`
-          : `${albumName} — Album Preorder`
-
-        const lineItems = [{
-          price_data: {
-            currency: 'usd',
-            unit_amount: albumPrice,
-            product_data: { name: lineItemLabel },
-          },
-          quantity: 1,
-        }]
-
-        const shipCost = Number(data.shippingCost) || 0
-        if (data.shippingMethod === 'ship' && shipCost > 0) {
-          lineItems.push({
-            price_data: {
-              currency: 'usd',
-              unit_amount: Math.round(shipCost * 100),
-              product_data: { name: 'Shipping & Handling' },
-            },
-            quantity: 1,
-          })
-        }
-
-        const sessionParams = {
-          payment_method_types: ['card'],
-          mode: 'payment',
-          line_items: lineItems,
-          customer_email: data.customerEmail || undefined,
-          success_url: `${CLIENT_URL}/payment-success?type=preorder`,
-          cancel_url:  `${CLIENT_URL}/preorder/${albumSlug}`,
-          metadata: {
-            type:           'preorder',
-            albumSlug,
-            uid:            data.uid || '',
-            shippingMethod: data.shippingMethod || 'digital',
-          },
-        }
-
-        if (data.shippingMethod === 'ship') {
-          sessionParams.shipping_address_collection = { allowed_countries: ['US'] }
-        }
-
-        const session = await s.checkout.sessions.create(sessionParams)
-        await safeUpdate({ status: 'ready', url: session.url })
-        return
-      }
-
-      if (type === 'workshop_deposit') {
-        const session = await s.checkout.sessions.create({
-          payment_method_types: ['card'],
-          mode: 'payment',
-          line_items: [{
-            price_data: {
-              currency: 'usd',
-              unit_amount: 2500,
-              product_data: { name: '1:1 Deep Consciousness Session — Deposit' },
-            },
-            quantity: 1,
-          }],
-          customer_email: customerEmail,
-          success_url: `${CLIENT_URL}/workshop?deposit=success`,
-          cancel_url:  `${CLIENT_URL}/workshop`,
-          metadata: { type: 'workshop_deposit', bookingName: data.bookingName || '' },
-        })
-        console.log('Workshop deposit session created:', session.id)
-        await safeUpdate({ status: 'ready', url: session.url })
-        return
-      }
-
       if (type === 'deposit') {
         // Validate deposit amount server-side — never trust the client value
         if (!data.productId) {
@@ -642,24 +520,13 @@ async function handlePaidSession(session) {
     // Stripe Payment Links (and dashboard-created invoices) arrive with no
     // metadata.type, so every branch below skips them and the sale leaves no
     // trace on the site. Catch that case explicitly rather than silently 200-ing.
-    const KNOWN_TYPES = ['order', 'deposit', 'blog_submission', 'workshop_deposit', 'preorder', 'artist_subscription', 'cd_order']
+    const KNOWN_TYPES = ['order', 'deposit', 'artist_subscription', 'cd_order']
 
-    // The magazine article fee still goes through a Stripe Payment Link, which
-    // carries no metadata — only client_reference_id. Infer the type so it isn't
-    // treated as an orphan.
-    //
-    // The $1 art-listing fee was retired in August 2026. It is deliberately NOT
-    // inferred any more: a payment arriving through the old (now deactivated)
-    // link falls through to the orphan handler, which records it and emails the
-    // shop — far better than silently marking a submission paid for a fee that
-    // no longer exists.
-    let effectiveType = meta.type
-    if (!KNOWN_TYPES.includes(effectiveType) && session.client_reference_id) {
-      const refId = session.client_reference_id
-      if ((await db.doc(`blogSubmissions/${refId}`).get()).exists) {
-        effectiveType = 'blog_submission'
-      }
-    }
+    // Retired payment types (magazine article fee, $1 listing fee, workshop
+    // deposit, album preorder) are deliberately not known any more: a payment
+    // through an old link lands in the orphan handler, which records it and
+    // emails the shop, rather than being silently marked paid.
+    const effectiveType = meta.type
 
     if (!KNOWN_TYPES.includes(effectiveType)) {
       const email = session.customer_details?.email || session.customer_email || ''
@@ -830,65 +697,6 @@ async function handlePaidSession(session) {
       })
     }
 
-    // ── Blog submission fee paid ─────────────────────────────────────────────
-    if (effectiveType === 'blog_submission') {
-      const blogId = meta.submissionId || session.client_reference_id
-      if (blogId) {
-        await db.doc(`blogSubmissions/${blogId}`).update({
-          feePaid: true,
-          stripeSessionId: session.id,
-          paidAt: FieldValue.serverTimestamp(),
-          status: 'pending_review',
-        }).catch(() => {})
-      }
-    }
-
-    // ── Workshop 1:1 deposit paid ─────────────────────────────────────────────
-    if (effectiveType === 'workshop_deposit') {
-      initSG()
-      const customerEmail = session.customer_details?.email || session.customer_email || ''
-      const bookingName   = meta.bookingName || session.customer_details?.name || ''
-
-      await db.collection('workshopBookings').add({
-        name:            bookingName,
-        email:           customerEmail,
-        amount:          (session.amount_total || 0) / 100,
-        stripeSessionId: session.id,
-        status:          'deposit_paid',
-        paidAt:          FieldValue.serverTimestamp(),
-      })
-
-      if (customerEmail) {
-        await sendEmail(
-          customerEmail,
-          'Workshop Deposit Received — Art Saturated',
-          fmtEmail(bookingName || undefined, [
-            'Your $25 deposit for a 1:1 Deep Consciousness Session has been received.',
-            '',
-            'Zion will confirm your session within 24 hours and collect the remaining $25 at that time.',
-            'Your Google Meet link will be sent 10–15 minutes before your session.',
-            '',
-            'If you have any questions, reply to this email.',
-          ]),
-        ).catch(e => console.error('Workshop deposit customer email error:', e.message))
-      }
-
-      await sendEmail(
-        OWNER_EMAIL,
-        `Workshop 1:1 Deposit — ${bookingName || customerEmail || 'Unknown'}`,
-        [
-          'New workshop 1:1 deposit received!',
-          '',
-          `Name:    ${bookingName || '—'}`,
-          `Email:   ${customerEmail || '—'}`,
-          `Amount:  $${(session.amount_total || 0) / 100}`,
-          '',
-          'Action needed: confirm their session and collect the remaining $25.',
-        ].join('\n'),
-      ).catch(e => console.error('Workshop deposit admin email error:', e.message))
-    }
-
-    // ── Enigma album preorder paid ───────────────────────────────────────────
     // ── Artist membership started ────────────────────────────────────────────
     // The hourly sync would catch this eventually, but a new subscriber should
     // get access within the reconciler's 5 minutes, not up to an hour.
@@ -921,63 +729,6 @@ async function handlePaidSession(session) {
       return
     }
 
-    if (effectiveType === 'preorder') {
-      initSG()
-      const customerEmail = session.customer_details?.email || session.customer_email || ''
-      const customerName  = session.customer_details?.name  || ''
-      const shippingAddr  = session.shipping_details?.address || null
-
-      await db.collection('preorders').doc(session.id).set({
-        uid:             meta.uid || '',
-        email:           customerEmail,
-        name:            customerName,
-        albumSlug:       meta.albumSlug || 'enigma',
-        albumName:       'Enigma',
-        stripeSessionId: session.id,
-        amount:          (session.amount_total || 0) / 100,
-        shippingMethod:  meta.shippingMethod || 'digital',
-        shippingAddress: shippingAddr,
-        status:          'confirmed',
-        paidAt:          FieldValue.serverTimestamp(),
-      })
-
-      if (customerEmail) {
-        const shipMethod = meta.shippingMethod || 'digital'
-        const deliveryLine = shipMethod === 'ship'
-          ? "A physical copy will be shipped to you when the album drops. We'll email you tracking info."
-          : shipMethod === 'pickup'
-          ? "Your physical copy will be ready for pickup when the album drops. We'll reach out with details."
-          : "You'll receive a download link as soon as the album is released."
-
-        await sendEmail(
-          customerEmail,
-          'Enigma Preorder Confirmed — Art Saturated',
-          fmtEmail(customerName || undefined, [
-            'Your preorder for Enigma by Zionomari is confirmed.',
-            '',
-            deliveryLine,
-            '',
-            'Thank you for supporting the music.',
-          ])
-        ).catch(e => console.error('Preorder email error:', e.message))
-      }
-
-      await sendEmail(
-        OWNER_EMAIL,
-        `New Preorder — ${meta.albumSlug || 'enigma'} (${customerName || customerEmail || 'Unknown'})`,
-        [
-          'New album preorder!',
-          '',
-          `Name:      ${customerName || '—'}`,
-          `Email:     ${customerEmail || '—'}`,
-          `Amount:    $${(session.amount_total || 0) / 100}`,
-          `Delivery:  ${meta.shippingMethod || 'digital'}`,
-          ...(shippingAddr ? ['', 'Ship to:', `  ${shippingAddr.line1 || ''}`, `  ${shippingAddr.city || ''}, ${shippingAddr.state || ''} ${shippingAddr.postal_code || ''}`] : []),
-          '',
-          `Manage: ${CLIENT_URL}/admin`,
-        ].join('\n'),
-      ).catch(e => console.error('Preorder admin email error:', e.message))
-    }
 }
 
 // Exposed to the test suite only. Guarded so the deploy-time export scan never
@@ -1443,75 +1194,6 @@ exports.onOrderStatusChanged = fn().firestore
           `Your payout: $${payout}`,
           '',
           'Payouts release 7 days after order completion.',
-        ]),
-      ).catch(console.error)
-    }
-
-    return null
-  })
-
-// ── Firestore: Submission approved/rejected → notify artist ───────────────────
-exports.onSubmissionStatusChanged = fn().firestore
-  .document('submissions/{submissionId}')
-  .onUpdate(async (change) => {
-    initSG()
-    const before = change.before.data(), after = change.after.data()
-    if (before.status === after.status) return null
-
-    if (after.status === 'approved') {
-      await sendEmail(after.artistEmail,
-        `Approved — "${after.title}" is live on Art Saturated`,
-        fmtEmail(after.artistName, [
-          `"${after.title}" is approved and live in the shop!`,
-          '',
-          'Reminder:',
-          '  • Ship within 3 business days',
-          '  • Art Saturated takes 10% commission',
-          '  • Payouts release 7 days after completion',
-        ]),
-      ).catch(console.error)
-    }
-
-    if (after.status === 'rejected') {
-      const feedbackLines = after.rejectionFeedback
-        ? ['Feedback from our team:', '', `  ${after.rejectionFeedback}`, '', 'Feel free to revise and resubmit at any time.']
-        : ["We weren't able to approve this listing right now.", '', 'Want to know why? You can request feedback from your submissions page.']
-      await sendEmail(after.artistEmail,
-        `Submission Update — ${after.submissionNumber ? `[${after.submissionNumber}] ` : ''}Art Saturated`,
-        fmtEmail(after.artistName, [
-          `Thank you for submitting "${after.title}".`,
-          '',
-          ...feedbackLines,
-        ]),
-      ).catch(console.error)
-    }
-
-    // Artist requested feedback on a rejection — notify admin
-    if (after.feedbackRequested && !before.feedbackRequested) {
-      const subRef = `${after.submissionNumber || after.title} by ${after.artistName}`
-      await sendEmail(OWNER_EMAIL,
-        `Feedback Requested — ${subRef}`,
-        [
-          `An artist is requesting feedback on a rejected submission.`,
-          ``,
-          `Submission: ${subRef}`,
-          `Artist email: ${after.artistEmail}`,
-          ``,
-          `Review and respond at: ${CLIENT_URL}/admin?tab=submissions`,
-        ].join('\n'),
-      ).catch(console.error)
-    }
-
-    // Admin sent feedback — notify artist
-    if (after.feedbackAnswered && !before.feedbackAnswered && after.adminFeedback) {
-      await sendEmail(after.artistEmail,
-        `Feedback on Your Submission — Art Saturated`,
-        fmtEmail(after.artistName, [
-          `Here's feedback from our team on your submission "${after.title}":`,
-          '',
-          `  ${after.adminFeedback}`,
-          '',
-          "You're welcome to revise and resubmit at any time.",
         ]),
       ).catch(console.error)
     }
@@ -2036,304 +1718,6 @@ exports.onShippingRequestCreated = fn({ timeoutSeconds: 120 })
     }
   })
 
-// ── Gemini via @google/genai (Vertex, global endpoint) ───────────────────────
-// One shared call site. The new SDK properly supports the `global` endpoint and
-// current Gemini models — the old @google-cloud/vertexai SDK did not (it built
-// a bad `global-aiplatform…` URL and returned HTML). Default model: gemini-2.0-flash.
-function genAI() {
-  const { GoogleGenAI } = require('@google/genai')
-  return new GoogleGenAI({
-    vertexai: true,
-    project:  process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'art-saturated',
-    location: 'global',
-  })
-}
-async function geminiText({ contents, config, model = 'gemini-2.0-flash' }) {
-  const result = await genAI().models.generateContent({ model, contents, config })
-  return (result.text || '').trim()
-}
-
-// ── AI: Generate interview draft from artist responses ────────────────────────
-// Called from AdminPage "Interviews" tab after the artist submits their answers.
-// Uses Vertex AI (Gemini) to produce a first-person blog-post draft.
-// The draft is written to blogSubmissions so it flows through the existing
-// review pipeline — Zion edits and approves before anything goes live.
-// Core logic — shared by the dispatcher. Drafts an interview-based feature.
-async function generateInterviewDraftDoc(interviewId, db) {
-  const snap = await db.collection('interviews').doc(interviewId).get()
-  if (!snap.exists) { const e = new Error('Interview not found.'); throw e }
-
-  const interview = snap.data()
-  if (!interview.responses || Object.keys(interview.responses).length === 0) {
-    throw new Error('No responses to draft from.')
-  }
-
-  const questions = interview.questions || []
-  const responses = interview.responses || {}
-  const qaPairs = questions
-    .map((q, i) => responses[i]?.trim() ? `Q: ${q}\nA: ${responses[i].trim()}` : null)
-    .filter(Boolean)
-    .join('\n\n')
-  const artistName = interview.artistName || 'the artist'
-
-  const prompt = `You are an editorial assistant for Art Saturated, an independent art platform. Write a warm, personal artist feature based on the Q&A below. Rules:
-- Write in THIRD PERSON (e.g. "Zion says..." not "I say...")
-- 350–600 words
-- Open with a compelling sentence about the artist or their work, not a generic introduction
-- Weave the Q&A answers naturally into flowing prose — do NOT use question headers
-- Preserve the artist's exact phrasing and voice where possible; do not paraphrase into corporate language
-- End with a short paragraph directing readers to their work on the site
-- Do NOT invent facts, quotes, or details not present in the answers
-- Plain text only — no markdown, no asterisks, no bullet points
-
-Artist: ${artistName}
-
-Q&A:
-${qaPairs}`
-
-  const draftText = await geminiText({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: { temperature: 0.7, maxOutputTokens: 1024 },
-  })
-
-  // Write draft to blogSubmissions. body+excerpt so it renders in the magazine.
-  const blogRef = db.collection('blogSubmissions').doc()
-  await blogRef.set({
-    title:       `Artist Feature: ${artistName}`,
-    slug:        `${seoSlugify('artist-feature-' + artistName)}-${Math.random().toString(36).slice(2, 6)}`,
-    authorName:  artistName,
-    body:        draftText,
-    excerpt:     draftText.slice(0, 160),
-    category:    'artist-feature',
-    status:      'pending_review',
-    source:      'interview',
-    interviewId,
-    feePaid:     true,
-    submittedAt: FieldValue.serverTimestamp(),
-    uid:         null,
-  })
-
-  await snap.ref.update({
-    status:    'drafted',
-    draftedAt: FieldValue.serverTimestamp(),
-    blogDocId: blogRef.id,
-  })
-
-  return { success: true, blogDocId: blogRef.id, preview: draftText.slice(0, 200) }
-}
-
-// ── AI: SEO article generation ────────────────────────────────────────────────
-// Shared generator used by both the admin on-demand button and the weekly cron.
-// Enforces a monthly article quota stored in settings/seoConfig, generates an
-// SEO-oriented article with Gemini, and drops it into blogSubmissions as a
-// pending_review draft so it flows through the existing magazine review queue.
-
-const SEO_MONTH = () => new Date().toISOString().slice(0, 7)  // 'YYYY-MM'
-
-function seoSlugify(s) {
-  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60)
-}
-
-// Returns { ok, reason, used, quota } — does NOT generate, just checks/reserves.
-async function checkSeoQuota(db) {
-  const ref  = db.doc('settings/seoConfig')
-  const snap = await ref.get()
-  const cfg  = snap.exists ? snap.data() : {}
-  const quota = Number(cfg.monthlyQuota) || 8
-  const month = SEO_MONTH()
-  const used  = (cfg.usage && cfg.usage.month === month) ? Number(cfg.usage.count) || 0 : 0
-  if (used >= quota) return { ok: false, reason: `Monthly quota reached (${used}/${quota}).`, used, quota }
-  return { ok: true, used, quota, ref }
-}
-
-async function incrementSeoUsage(db) {
-  const ref   = db.doc('settings/seoConfig')
-  const month = SEO_MONTH()
-  await db.runTransaction(async (txn) => {
-    const snap = await txn.get(ref)
-    const cfg  = snap.exists ? snap.data() : {}
-    const used = (cfg.usage && cfg.usage.month === month) ? Number(cfg.usage.count) || 0 : 0
-    txn.set(ref, { usage: { month, count: used + 1 } }, { merge: true })
-  })
-}
-
-// ── AI credit governance ──────────────────────────────────────────────────────
-// Rough per-call cost estimates for Gemini 1.5 Flash (USD). Good enough to keep
-// credit spend visible and capped; not billing-grade accounting.
-const AI_COST = { seo: 0.0009, spotlight: 0.0009, interview: 0.0007, qa: 0.0010, ideas: 0.0005 }
-
-// Block new AI jobs if paused or the monthly budget ceiling is hit.
-async function checkAiBudget(db) {
-  const snap = await db.doc('settings/aiUsage').get()
-  const u = snap.exists ? snap.data() : {}
-  if (u.paused === true) return { ok: false, reason: 'AI is paused in admin (AI Usage tab).' }
-  const month  = SEO_MONTH()
-  const spent  = (u.month === month) ? Number(u.estCostUsd) || 0 : 0
-  const budget = Number(u.monthlyBudgetUsd) || 0   // 0 = no ceiling
-  if (budget > 0 && spent >= budget) {
-    return { ok: false, reason: `Monthly AI budget reached ($${spent.toFixed(2)} / $${budget.toFixed(2)}).` }
-  }
-  return { ok: true }
-}
-
-async function recordAiUsage(db, type) {
-  const ref   = db.doc('settings/aiUsage')
-  const month = SEO_MONTH()
-  const cost  = AI_COST[type] || 0.001
-  await db.runTransaction(async (txn) => {
-    const snap = await txn.get(ref)
-    const u = snap.exists ? snap.data() : {}
-    const fresh  = u.month === month
-    const counts = fresh ? { ...(u.counts || {}) } : {}
-    counts[type] = (Number(counts[type]) || 0) + 1
-    const estCostUsd = (fresh ? Number(u.estCostUsd) || 0 : 0) + cost
-    txn.set(ref, { month, counts, estCostUsd, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
-  })
-}
-
-// Core generator — topic in, blogSubmissions draft out.
-async function generateSeoArticleDoc(topic, db, sourceLabel = 'seo-ai') {
-  const quota = await checkSeoQuota(db)
-  if (!quota.ok) {
-    const e = new Error(quota.reason); e.code = 'quota'; throw e
-  }
-
-  const prompt = `You are an editorial writer for Art Saturated, an independent art, music, and culture platform based in Fort Wayne, Indiana. Write an original, genuinely useful magazine article on the topic below, optimized for search without being spammy.
-
-Topic: ${topic}
-
-Rules:
-- 600–900 words of real, specific, substantive content. No filler, no fluff, no keyword stuffing.
-- Ground it in the local Fort Wayne / independent-artist context where natural.
-- Warm, knowledgeable, human editorial voice — not corporate, not robotic.
-- Plain prose paragraphs only. No markdown, asterisks, headers, or bullet lists.
-- Do NOT invent specific events, names, dates, prices, or quotes. Keep claims general and true.
-
-Return ONLY valid JSON with this exact shape:
-{
-  "title": "compelling, specific, search-friendly title under 65 characters",
-  "metaDescription": "120–155 character meta description that earns clicks",
-  "excerpt": "1–2 sentence standfirst shown above the article",
-  "body": "the full article as plain text with paragraphs separated by blank lines"
-}`
-
-  let parsed
-  try {
-    const raw = await geminiText({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 2048 },
-    })
-    parsed = JSON.parse(raw)
-  } catch (err) {
-    console.error('generateSeoArticleDoc Vertex error:', err.message)
-    const e = new Error('Article generation failed: ' + err.message); e.code = 'internal'; throw e
-  }
-
-  const title = (parsed.title || topic).trim()
-  const slug  = `${seoSlugify(title)}-${Math.random().toString(36).slice(2, 6)}`
-
-  const ref = db.collection('blogSubmissions').doc()
-  await ref.set({
-    title,
-    slug,
-    body:            (parsed.body || '').trim(),
-    excerpt:         (parsed.excerpt || '').trim(),
-    metaDescription: (parsed.metaDescription || parsed.excerpt || '').trim().slice(0, 160),
-    authorName:      'Art Saturated',
-    category:        'feature',
-    status:          'pending_review',
-    source:          sourceLabel,
-    seoTopic:        topic,
-    feePaid:         true,
-    submittedAt:     FieldValue.serverTimestamp(),
-    uid:             null,
-  })
-
-  await incrementSeoUsage(db)
-  return { id: ref.id, title, slug, used: quota.used + 1, quota: quota.quota }
-}
-
-// Admin-triggered on-demand generation.
-// (On-demand SEO generation is dispatched via onAiRequestCreated below.)
-
-// ── AI: Artist Spotlight generator ────────────────────────────────────────────
-// Admin picks a public artist; we pull their profile + work and draft a warm
-// feature for the magazine review queue. Each becomes a crawlable landing page
-// the artist can share. Review-gated — nothing publishes without approval.
-async function generateArtistSpotlightDoc(uid, db) {
-  const profSnap = await db.doc(`users/${uid}`).get()
-  if (!profSnap.exists) { throw new Error('Artist not found.') }
-  const prof = profSnap.data()
-  const name = prof.name || 'this artist'
-
-  // Gather their work (approved submissions + admin products) for context + a cover image
-  const [subSnap, prodSnap] = await Promise.all([
-    db.collection('submissions').where('uid', '==', uid).where('status', '==', 'approved').get().catch(() => ({ docs: [] })),
-    db.collection('products').where('artistUid', '==', uid).get().catch(() => ({ docs: [] })),
-  ])
-
-  const works = []
-  let coverURL = null
-  subSnap.docs.forEach(d => {
-    const s = d.data()
-    works.push(`${s.title || 'Untitled'} (${s.category || s.medium || 'mixed'})`)
-    if (!coverURL && s.imageURL) coverURL = s.imageURL
-  })
-  prodSnap.docs.forEach(d => {
-    const p = d.data()
-    if (p.source === 'submission') return
-    works.push(`${p.name || 'Untitled'} (${p.medium || 'mixed'})`)
-    const img = Array.isArray(p.imageURLs) ? p.imageURLs[0] : (p.imageURL || p.image || null)
-    if (!coverURL && img) coverURL = img
-  })
-  if (!coverURL && prof.photoURL) coverURL = prof.photoURL
-
-  const prompt = `You are an editorial writer for Art Saturated, an independent art platform in Fort Wayne, Indiana. Write a warm, genuine artist spotlight feature.
-
-Artist: ${name}
-${prof.artistBio ? `Bio in their words: ${prof.artistBio}` : ''}
-${prof.instagram ? `Instagram: ${prof.instagram}` : ''}
-Known works on the platform: ${works.length ? works.slice(0, 12).join('; ') : 'a growing body of work'}
-
-Rules:
-- 400–650 words, third person.
-- Open with something specific about the artist or their work — never a generic intro.
-- Build from the bio and the titles/mediums of their actual work. Do NOT invent biographical facts, sales, quotes, awards, or dates.
-- Warm, human, editorial voice. Plain prose only — no markdown, headers, or bullets.
-- End by inviting readers to explore their work on Art Saturated.
-
-Return ONLY valid JSON: { "title": "spotlight title under 65 chars", "metaDescription": "120–155 char meta description", "excerpt": "1–2 sentence standfirst", "body": "full article, paragraphs separated by blank lines" }`
-
-  const raw = await geminiText({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 2048 },
-  })
-  const parsed = JSON.parse(raw)
-
-  const title = (parsed.title || `Artist Spotlight: ${name}`).trim()
-  const slug  = `${seoSlugify(title)}-${Math.random().toString(36).slice(2, 6)}`
-
-  const ref = db.collection('blogSubmissions').doc()
-  await ref.set({
-    title,
-    slug,
-    body:            (parsed.body || '').trim(),
-    excerpt:         (parsed.excerpt || '').trim(),
-    metaDescription: (parsed.metaDescription || parsed.excerpt || '').trim().slice(0, 160),
-    coverURL:        coverURL || null,
-    authorName:      'Art Saturated',
-    category:        'artist-feature',
-    status:          'pending_review',
-    source:          'artist-spotlight',
-    artistUid:       uid,
-    feePaid:         true,
-    submittedAt:     FieldValue.serverTimestamp(),
-    uid:             null,
-  })
-
-  return { id: ref.id, title, slug }
-}
-
 // ── Discogs lookup — identify a release by barcode / catalog # / text ──────────
 // Returns authoritative metadata to auto-fill a Physical Media listing.
 async function discogsLookup({ query, barcode, catno } = {}) {
@@ -2439,24 +1823,8 @@ exports.onAiRequestCreated = fn({ timeoutSeconds: 120, memory: '512MB' })
     const db  = admin.firestore()
     const payload = req.payload || {}
     try {
-      const AI_TYPES = ['seo', 'spotlight', 'interview']
-      // Discogs lookup isn't AI — it doesn't count against the AI budget.
-      if (AI_TYPES.includes(req.type)) {
-        const budget = await checkAiBudget(db)
-        if (!budget.ok) throw new Error(budget.reason)
-      }
-
-      let result
-      switch (req.type) {
-        case 'seo':        result = await generateSeoArticleDoc((payload.topic || '').trim(), db, 'seo-ai-manual'); break
-        case 'spotlight':  result = await generateArtistSpotlightDoc(payload.uid, db); break
-        case 'interview':  result = await generateInterviewDraftDoc(payload.interviewId, db); break
-        case 'discogs':    result = await discogsLookup(payload); break
-        default: throw new Error('Unknown request type: ' + req.type)
-      }
-      if (AI_TYPES.includes(req.type)) {
-        await recordAiUsage(db, req.type).catch(e => console.error('recordAiUsage failed:', e && e.message))
-      }
+      if (req.type !== 'discogs') throw new Error('Unknown request type: ' + req.type)
+      const result = await discogsLookup(payload)
       await snap.ref.update({ status: 'done', result: result || {}, completedAt: FieldValue.serverTimestamp() })
     } catch (err) {
       console.error('onAiRequestCreated error:', req.type, err && (err.stack || err.message))
@@ -2624,10 +1992,8 @@ exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
     const db = admin.firestore()
 
     // Gather housekeeping counts in parallel
-    const [ordersSnap, submissionsSnap, eventSubsSnap, feedbackSnap] = await Promise.all([
+    const [ordersSnap, feedbackSnap] = await Promise.all([
       db.collection('orders').where('status', '==', 'pending').get(),
-      db.collection('submissions').where('status', '==', 'pending_review').get(),
-      db.collection('eventSubmissions').where('status', '==', 'pending').get(),
       db.collection('feedback').where('status', '==', 'new').get(),
     ])
 
@@ -2640,8 +2006,6 @@ exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
     const items = [
       paidPending.length   > 0 ? `  • ${paidPending.length} paid order(s) to fulfil — ship within 3 business days` : '',
       unpaidPending        > 0 ? `  • ${unpaidPending} abandoned checkout(s) — no payment taken, archive when convenient` : '',
-      submissionsSnap.size > 0 ? `  • ${submissionsSnap.size} art submission(s) awaiting review` : '',
-      eventSubsSnap.size   > 0 ? `  • ${eventSubsSnap.size} event submission(s) awaiting approval` : '',
       feedbackSnap.size    > 0 ? `  • ${feedbackSnap.size} feedback item(s) unread` : '',
     ].filter(Boolean)
 
@@ -2668,59 +2032,6 @@ exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
     console.log(`[nightly] digest sent. Items: ${items.length}, depReminder: ${!!depReminder}`)
     return null
   })
-
-// ── Storage: Watermark artist submissions on upload ───────────────────────────
-exports.watermarkSubmission = fn({ timeoutSeconds: 120, memory: '1GB' })
-  .storage.bucket('art-saturated.firebasestorage.app').object().onFinalize(async (object) => {
-  const { name: filePath, bucket: bucketName, contentType, metadata } = object
-
-  // Only process images uploaded to submissions/
-  if (!filePath?.startsWith('submissions/')) return null
-  if (!contentType?.startsWith('image/')) return null
-  // Avoid infinite loop — skip if already watermarked
-  if (metadata?.watermarked === 'true') return null
-
-  try {
-    const bucket = admin.storage().bucket(bucketName)
-    const file   = bucket.file(filePath)
-    const [buffer] = await file.download()
-
-    const { width = 1000, height = 1000 } = await sharp(buffer).metadata()
-
-    // Scale watermark text relative to image width
-    const fontSize = Math.max(14, Math.round(width * 0.025))
-    const padding  = Math.round(fontSize * 0.75)
-    const svgW     = Math.round(fontSize * 14)
-    const svgH     = Math.round(fontSize * 2.5)
-
-    const svg = Buffer.from(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">` +
-      `<text x="${svgW - padding}" y="${svgH - padding}" ` +
-      `font-family="monospace" font-size="${fontSize}" ` +
-      `fill="rgba(255,255,255,0.45)" text-anchor="end">© Art Saturated</text>` +
-      `</svg>`
-    )
-
-    const isJpeg = contentType === 'image/jpeg' || contentType === 'image/jpg'
-
-    const watermarked = await sharp(buffer)
-      .composite([{ input: svg, gravity: 'southeast' }])
-      .toFormat(isJpeg ? 'jpeg' : 'png', { quality: 92 })
-      .toBuffer()
-
-    await file.save(watermarked, {
-      contentType: isJpeg ? 'image/jpeg' : 'image/png',
-      metadata: { watermarked: 'true' },
-      resumable: false,
-    })
-
-    console.log(`Watermarked: ${filePath}`)
-  } catch (err) {
-    console.error('watermarkSubmission error:', err)
-  }
-
-  return null
-})
 
 // ── Firestore: Single session booked → confirm customer + notify Zion ─────────
 exports.onBookingCreated = fn().firestore
@@ -2777,83 +2088,3 @@ exports.onBookingCreated = fn().firestore
     return null
   })
 
-// ── Firestore: Workshop RSVP submitted → notify Zion ────────────────────────
-exports.onWorkshopRsvpCreated = fn().firestore
-  .document('workshopRsvps/{rsvpId}')
-  .onCreate(async (snap) => {
-    initSG()
-    const r = snap.data()
-    if (!r.email) return null
-
-    // Duplicate detection — only the FIRST RSVP for a given email sends emails.
-    // A repeat submission is flagged (duplicate: true) and skipped so nobody
-    // gets a second confirmation and Zion isn't pinged twice.
-    const emailNorm = String(r.email).trim().toLowerCase()
-    try {
-      const dupSnap = await admin.firestore()
-        .collection('workshopRsvps')
-        .where('email', '==', r.email)
-        .get()
-      const sameEmail = dupSnap.docs.filter(
-        d => String(d.data().email || '').trim().toLowerCase() === emailNorm
-      )
-      if (sameEmail.length > 1) {
-        const earliest = sameEmail.reduce((a, b) => {
-          const ta = a.data().submittedAt?.toMillis?.() ?? Number.MAX_SAFE_INTEGER
-          const tb = b.data().submittedAt?.toMillis?.() ?? Number.MAX_SAFE_INTEGER
-          return tb < ta ? b : a
-        })
-        if (earliest.id !== snap.id) {
-          console.log('Duplicate workshop RSVP, skipping emails:', r.email)
-          await snap.ref.update({ duplicate: true }).catch(() => {})
-          return null
-        }
-      }
-    } catch (e) { console.warn('RSVP dup check failed (continuing):', e.message) }
-
-    // 1. Confirmation + Google Meet links straight to the person who RSVP'd
-    await sendEmail(
-      r.email,
-      `You're in — Exploring Deep States of Consciousness`,
-      fmtEmail(r.name, [
-        `You're confirmed for the Exploring Deep States of Consciousness workshop.`,
-        ``,
-        `Format:    Live on Google Meet`,
-        `Length:    1 hour — 15-min Q&A within or after each session`,
-        ``,
-        `── Sessions & Google Meet Links ──`,
-        `Session 1 — Tuesday, July 1 · 4:30 PM ET`,
-        `https://meet.google.com/aty-fpji-tja`,
-        ``,
-        `Session 2 — Wednesday, July 8 · 4:30 PM ET`,
-        `https://meet.google.com/zgy-fcnt-msz`,
-        ``,
-        `Session 3 — Wednesday, July 15 · 4:30 PM ET`,
-        `https://meet.google.com/vxt-tgrs-ddz`,
-        ``,
-        `Save this email — the same links work for every session.`,
-        ``,
-        `── Donation (pay what feels right) ──`,
-        `Cash App:  https://cash.app/$artsaturated`,
-        `Venmo:     https://venmo.com/zionomari`,
-        ``,
-        `Questions? Just reply to this email.`,
-      ], '— Art Saturated'),
-    ).catch(e => console.error('RSVP confirmation error:', e.response?.body?.errors?.[0]?.message || e.message))
-
-    // 2. Notify Zion (skip for attendees Zion added manually in the admin panel)
-    if (!r.addedByAdmin) {
-      await sendEmail(
-        OWNER_EMAIL,
-        `New Workshop RSVP — ${r.name || r.email}`,
-        [
-          'New workshop RSVP received!',
-          '',
-          `Name:   ${r.name || '—'}`,
-          `Email:  ${r.email}`,
-        ].join('\n'),
-      ).catch(e => console.error('RSVP notification error:', e.message))
-    }
-
-    return null
-  })

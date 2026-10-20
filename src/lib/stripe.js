@@ -57,18 +57,6 @@ export async function checkoutDeposit({ customerEmail, orderId, productId, produ
   return waitForCheckoutUrl({ type: 'deposit', customerEmail, orderId, productId, productName })
 }
 
-export async function checkoutBlogSubmission({ customerEmail, submissionId, title, fee }) {
-  return waitForCheckoutUrl({ type: 'blog', customerEmail, submissionId, title, fee })
-}
-
-export async function checkoutPreorder({ customerEmail, shippingCost, shippingMethod, albumSlug, albumName, artistName }) {
-  return waitForCheckoutUrl({ type: 'preorder', albumSlug, albumName, artistName, customerEmail, shippingCost, shippingMethod })
-}
-
-export async function checkoutWorkshopDeposit({ customerEmail, bookingName }) {
-  return waitForCheckoutUrl({ type: 'workshop_deposit', customerEmail, bookingName })
-}
-
 // CD printing order (QuoteRequestPage). The function prices it from the saved
 // order doc and decides whether this is the first payment or the balance.
 export async function checkoutCdOrder({ orderId, customerEmail }) {

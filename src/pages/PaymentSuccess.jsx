@@ -9,7 +9,7 @@ export default function PaymentSuccess() {
   const [params]   = useSearchParams()
   const navigate   = useNavigate()
   const { clearCart } = useCart()
-  const type    = params.get('type')    // 'order' | 'listing' | 'deposit' | 'blog' | 'preorder'
+  const type    = params.get('type')    // 'order' | 'deposit' | 'cd_order'
   const orderId = params.get('orderId')
 
   // The cart is emptied here rather than at redirect time, so abandoning at the
@@ -23,7 +23,7 @@ export default function PaymentSuccess() {
   // De-duped per order; value enriched from the order doc when readable.
   useEffect(() => {
     if (!window.gtag) return
-    if (!(type === 'order' || type === 'deposit' || type === 'preorder')) return
+    if (!(type === 'order' || type === 'deposit' || type === 'cd_order')) return
     const key = `ga_purchase_${orderId || type}`
     if (sessionStorage.getItem(key)) return
     sessionStorage.setItem(key, '1')
@@ -43,29 +43,17 @@ export default function PaymentSuccess() {
     })()
   }, [type, orderId])
 
-  const isBlog     = type === 'blog'
-  const isListing  = type === 'listing'
   const isDeposit  = type === 'deposit'
-  const isPreorder = type === 'preorder'
   const isCd       = type === 'cd_order'
 
-  const heading = isBlog     ? 'Article submitted.'
-                : isListing  ? 'Listing fee paid.'
-                : isDeposit  ? 'Deposit received.'
-                : isPreorder ? 'Preorder confirmed.'
+  const heading = isDeposit  ? 'Deposit received.'
                 : isCd       ? 'CD order paid.'
                 : 'Order confirmed.'
 
-  const body = isBlog
-    ? "Your article is in the review queue. We'll be in touch within 48 hours. Thank you for contributing to Art Saturated Magazine."
-    : isListing
-    ? "Your submission is now in the review queue. You'll hear back within 48 hours."
-    : isDeposit
+  const body = isDeposit
     ? "Your deposit is confirmed. We'll be in touch with next steps and your balance due before shipping."
     : isCd
     ? "Your files are in the print queue. A receipt is on its way to your email within a few minutes, and we'll email you again when your CDs are ready."
-    : isPreorder
-    ? "You're on the list. A confirmation email is on its way. You'll hear from us the day Enigma drops."
     : "Your order is confirmed. You'll receive an email with details and shipping updates."
 
   const orderRef = orderId ? `#${orderId.slice(-6).toUpperCase()}` : null
@@ -77,28 +65,24 @@ export default function PaymentSuccess() {
         <h1 className="font-serif" style={{ fontSize: '2rem', fontWeight: 'normal', marginBottom: '12px' }}>
           {heading}
         </h1>
-        {orderRef && !isListing && !isBlog && (
+        {orderRef && (
           <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.12em', color: '#3d2810', marginBottom: '8px', textTransform: 'uppercase' }}>
             Order {orderRef}
           </p>
         )}
-        <p style={{ fontFamily: 'monospace', fontSize: '13px', color: '#8a5c3a', marginBottom: (!isBlog && !isListing) ? '24px' : '32px', lineHeight: '1.7' }}>
+        <p style={{ fontFamily: 'monospace', fontSize: '13px', color: '#8a5c3a', marginBottom: '24px', lineHeight: '1.7' }}>
           {body}
         </p>
-        {!isBlog && !isListing && (
-          <p style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: '1.05rem', color: '#3d2810', lineHeight: '1.75', marginBottom: '32px', paddingTop: '24px', borderTop: '1px solid #e8ddd0' }}>
-            Thank you for supporting! Every transaction is instrumental to making this all work. We offer infinite gratitude for not only seeing the vision, but also being a part of our dream.
-          </p>
-        )}
+        <p style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: '1.05rem', color: '#3d2810', lineHeight: '1.75', marginBottom: '32px', paddingTop: '24px', borderTop: '1px solid #e8ddd0' }}>
+          Thank you for supporting! Every transaction is instrumental to making this all work. We offer infinite gratitude for not only seeing the vision, but also being a part of our dream.
+        </p>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(isBlog || isPreorder || isCd ? '/home' : '/account')} className="btn-outline">
-            {isBlog || isPreorder || isCd ? 'Back to Home' : isListing ? 'View Submissions' : 'View Orders'}
+          <button onClick={() => navigate(isCd ? '/home' : '/account')} className="btn-outline">
+            {isCd ? 'Back to Home' : 'View Orders'}
           </button>
-          {!isPreorder && (
-            <button onClick={() => navigate('/shop')} className="btn-ghost">
-              Back to Shop
-            </button>
-          )}
+          <button onClick={() => navigate('/shop')} className="btn-ghost">
+            Back to Shop
+          </button>
         </div>
       </div>
       <Footer />
