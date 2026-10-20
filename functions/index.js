@@ -11,6 +11,15 @@ admin.initializeApp()
 // silent WriteBatch.commit failures). Mirror the client SDK and ignore them.
 admin.firestore().settings({ ignoreUndefinedProperties: true })
 
+// ── Secrets ──────────────────────────────────────────────────────────────────
+// Keys live in Google Secret Manager (set with `firebase functions:secrets:set
+// NAME`), never in functions/.env. Each is exposed to the function as
+// process.env.NAME, but only if the function declares it — so every function
+// is built with fn(), which declares all of them. A function built straight
+// from `functions` would see these as undefined and fail quietly (e.g. no email).
+const SECRETS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SHIPPO_API_KEY', 'DISCOGS_TOKEN', 'GMAIL_APP_PASSWORD']
+const fn = (opts = {}) => functions.runWith({ ...opts, secrets: SECRETS })
+
 // orders@artsaturated.com has no mailbox — anything addressed to it hard-bounces.
 // OWNER_EMAIL is the real inbox and is where every admin notification must go.
 // FROM_EMAIL is only a sender identity, and Gmail SMTP overrides it with GMAIL_USER anyway.
@@ -85,8 +94,7 @@ function shippingWindow() {
 }
 
 // ── Stripe: Firestore-triggered checkout (avoids HTTP IAM restrictions) ───────
-exports.onCheckoutRequestCreated = functions
-  .runWith({ timeoutSeconds: 120 })
+exports.onCheckoutRequestCreated = fn({ timeoutSeconds: 120 })
   .firestore
   .document('checkoutRequests/{docId}')
   .onCreate(async (snap) => {
@@ -981,7 +989,7 @@ if (process.env.FUNCTIONS_TEST) {
   exports.__setStripeStub   = (stub) => { _stripeStub = stub }
 }
 
-exports.stripeWebhook = functions.runWith({ invoker: 'public' }).https.onRequest(async (req, res) => {
+exports.stripeWebhook = fn({ invoker: 'public' }).https.onRequest(async (req, res) => {
   const sig    = req.headers['stripe-signature']
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   let event
@@ -1081,8 +1089,7 @@ async function syncArtistSubscription(sub) {
 // a request document and reads the answer back off it — the same pattern as
 // checkoutRequests. Never trust the client for identity here: the subscription
 // id is read from the caller's own user document, never from the request.
-exports.onBillingRequestCreated = functions
-  .runWith({ timeoutSeconds: 60 })
+exports.onBillingRequestCreated = fn({ timeoutSeconds: 60 })
   .firestore
   .document('billingRequests/{docId}')
   .onCreate(async (snap) => {
@@ -1143,8 +1150,7 @@ exports.onBillingRequestCreated = functions
 // ── Scheduled: keep artist memberships in sync with Stripe ───────────────────
 // Hourly is enough: a lapse costs at most an hour of extra upload access, and
 // polling every subscription every 5 minutes would be wasteful.
-exports.syncArtistMemberships = functions
-  .runWith({ timeoutSeconds: 300 })
+exports.syncArtistMemberships = fn({ timeoutSeconds: 300 })
   .pubsub.schedule('every 60 minutes')
   .onRun(async () => {
     let seen = 0, changed = 0
@@ -1178,8 +1184,7 @@ exports.syncArtistMemberships = functions
 // missed (outage, failed delivery). The idempotency lock makes overlap harmless.
 //
 // Lookback is deliberately wider than the interval so a failed run self-heals.
-exports.reconcileStripePayments = functions
-  .runWith({ timeoutSeconds: 300 })
+exports.reconcileStripePayments = fn({ timeoutSeconds: 300 })
   .pubsub.schedule('every 5 minutes')
   .onRun(async () => {
     const LOOKBACK_HOURS = 6
@@ -1352,7 +1357,7 @@ async function notifyOrderPaid(orderId, order) {
 }
 
 // ── Firestore: New order → only notify if it was already paid at creation ─────
-exports.onOrderCreated = functions.firestore
+exports.onOrderCreated = fn().firestore
   .document('orders/{orderId}')
   .onCreate(async (snap, ctx) => {
     const order   = snap.data()
@@ -1371,7 +1376,7 @@ exports.onOrderCreated = functions.firestore
   })
 
 // ── Firestore: Order status changed → notify buyer ────────────────────────────
-exports.onOrderStatusChanged = functions.firestore
+exports.onOrderStatusChanged = fn().firestore
   .document('orders/{orderId}')
   .onUpdate(async (change, ctx) => {
     const before = change.before.data(), after = change.after.data()
@@ -1446,7 +1451,7 @@ exports.onOrderStatusChanged = functions.firestore
   })
 
 // ── Firestore: Submission approved/rejected → notify artist ───────────────────
-exports.onSubmissionStatusChanged = functions.firestore
+exports.onSubmissionStatusChanged = fn().firestore
   .document('submissions/{submissionId}')
   .onUpdate(async (change) => {
     initSG()
@@ -1515,7 +1520,7 @@ exports.onSubmissionStatusChanged = functions.firestore
   })
 
 // ── Firestore: Commission request from collector → notify artist ──────────────
-exports.onCommissionRequestCreated = functions.firestore
+exports.onCommissionRequestCreated = fn().firestore
   .document('commissionRequests/{reqId}')
   .onCreate(async (snap) => {
     initSG()
@@ -1548,7 +1553,7 @@ exports.onCommissionRequestCreated = functions.firestore
 // ── Firestore: new message on an order → notify the other party ──────────────
 // Buyer ↔ shop thread attached to an order. Whoever did NOT send it gets an
 // email, so a question doesn't sit unread in a tab nobody has open.
-exports.onOrderMessage = functions.firestore
+exports.onOrderMessage = fn().firestore
   .document('orders/{orderId}/messages/{msgId}')
   .onCreate(async (snap, ctx) => {
     const msg = snap.data() || {}
@@ -1588,7 +1593,7 @@ exports.onOrderMessage = functions.firestore
   })
 
 // ── Firestore: New commission thread message → notify the other party ─────────
-exports.onCommissionMessage = functions.firestore
+exports.onCommissionMessage = fn().firestore
   .document('commissionRequests/{reqId}/messages/{msgId}')
   .onCreate(async (snap, ctx) => {
     initSG()
@@ -2000,8 +2005,7 @@ async function verifyShippingChoice({ uid, quoteId, rateId, expect }) {
   return { rate, address: q.address, groups: q.result.groups }
 }
 
-exports.onShippingRequestCreated = functions
-  .runWith({ timeoutSeconds: 120 })
+exports.onShippingRequestCreated = fn({ timeoutSeconds: 120 })
   .firestore.document('shippingRequests/{id}')
   .onCreate(async (snap) => {
     const data = snap.data() || {}
@@ -2594,8 +2598,7 @@ async function discogsPricing(releaseId, token, headers) {
 // ── AI dispatcher: client writes aiRequests/{id}; we generate and write back ───
 // Firestore-triggered (no public invoker needed) — sidesteps the Domain
 // Restricted Sharing org policy that blocks callable functions on this domain.
-exports.onAiRequestCreated = functions
-  .runWith({ timeoutSeconds: 120, memory: '512MB' })
+exports.onAiRequestCreated = fn({ timeoutSeconds: 120, memory: '512MB' })
   .firestore.document('aiRequests/{id}')
   .onCreate(async (snap) => {
     const req = snap.data() || {}
@@ -2638,7 +2641,7 @@ exports.onAiRequestCreated = functions
 // (OWNER_EMAIL is declared at the top of this file.)
 
 // New account created → ping Zion.
-exports.notifyNewUser = functions.firestore.document('users/{uid}').onCreate(async (snap, ctx) => {
+exports.notifyNewUser = fn().firestore.document('users/{uid}').onCreate(async (snap, ctx) => {
   try {
     initSG()
     const u = snap.data() || {}
@@ -2659,7 +2662,7 @@ exports.notifyNewUser = functions.firestore.document('users/{uid}').onCreate(asy
 })
 
 // Feedback / suggestion submitted → ping Zion.
-exports.notifyFeedback = functions.firestore.document('feedback/{id}').onCreate(async (snap) => {
+exports.notifyFeedback = fn().firestore.document('feedback/{id}').onCreate(async (snap) => {
   try {
     initSG()
     const f = snap.data() || {}
@@ -2739,7 +2742,7 @@ async function notifyCdPaid(id, o, { stage, paid, fullyPaid, amountPaidCents, to
 
 // Admin moves an order along → the customer hears about it. When a deposit
 // order is marked ready, the email carries the link to pay the balance.
-exports.onQuoteRequestUpdated = functions.firestore.document('quoteRequests/{id}').onUpdate(async (change, ctx) => {
+exports.onQuoteRequestUpdated = fn().firestore.document('quoteRequests/{id}').onUpdate(async (change, ctx) => {
   const before = change.before.data() || {}
   const o      = change.after.data() || {}
   if (before.status === o.status || !o.email || !o.uid) return null  // legacy quote requests have no uid
@@ -2782,8 +2785,7 @@ exports.onQuoteRequestUpdated = functions.firestore.document('quoteRequests/{id}
 // Summarises pending items and surfaces the monthly dep-review reminder.
 // Dep audits can't run in Cloud Functions (no npm); use `npm run check-deps`
 // locally. This function just reminds you to do it on the 1st of each month.
-exports.nightlyMaintenance = functions
-  .runWith({ timeoutSeconds: 180 })
+exports.nightlyMaintenance = fn({ timeoutSeconds: 180 })
   .pubsub.schedule('0 3 * * *').timeZone('America/Chicago')
   .onRun(async () => {
     initSG()
@@ -2838,8 +2840,7 @@ exports.nightlyMaintenance = functions
   })
 
 // ── Storage: Watermark artist submissions on upload ───────────────────────────
-exports.watermarkSubmission = functions
-  .runWith({ timeoutSeconds: 120, memory: '1GB' })
+exports.watermarkSubmission = fn({ timeoutSeconds: 120, memory: '1GB' })
   .storage.bucket('art-saturated.firebasestorage.app').object().onFinalize(async (object) => {
   const { name: filePath, bucket: bucketName, contentType, metadata } = object
 
@@ -2893,7 +2894,7 @@ exports.watermarkSubmission = functions
 
 // ── Firestore: Commission request (public form) → notify Zion + confirm customer ─
 // Fires when CommissionForm writes to commissions/{commId}.
-exports.onCommissionCreated = functions.firestore
+exports.onCommissionCreated = fn().firestore
   .document('commissions/{commId}')
   .onCreate(async (snap) => {
     initSG()
@@ -2943,7 +2944,7 @@ exports.onCommissionCreated = functions.firestore
   })
 
 // ── Firestore: Single session booked → confirm customer + notify Zion ─────────
-exports.onBookingCreated = functions.firestore
+exports.onBookingCreated = fn().firestore
   .document('bookings/{bookingId}')
   .onCreate(async (snap) => {
     initSG()
@@ -2998,7 +2999,7 @@ exports.onBookingCreated = functions.firestore
   })
 
 // ── Firestore: Workshop RSVP submitted → notify Zion ────────────────────────
-exports.onWorkshopRsvpCreated = functions.firestore
+exports.onWorkshopRsvpCreated = fn().firestore
   .document('workshopRsvps/{rsvpId}')
   .onCreate(async (snap) => {
     initSG()
