@@ -10,13 +10,10 @@ commit.
 ## 1. Still to do
 
 ### Owner decisions open
-- **Artist commission: 0% or 10%?** The upload page and listing promise
-  *"You keep the full sale price. No commission"* (`artistPayout = price`), but
-  `onOrderStatusChanged` emails the seller *"Commission (10%) … Your payout"*
-  when an order completes (`storeConfig.commissionRate`, default 0.10). Pick
-  one; both places must agree.
-- **How artists actually get paid.** Every payment lands in the shop's Stripe
-  account. There is no automated payout to artists.
+- ~~Artist commission~~ — **decided 2026-10-20: 0%.** The membership is the fee;
+  artists keep the full price. Sales list, terms and admin settings all agree.
+- **Artist payouts — decided 2026-10-20: Stripe Connect** (each artist links a
+  bank once; Stripe pays them per sale). Not built yet — Level 5.
 
 ### Revision levels remaining
 - **Level 4 (code structure):** 4.4 docs — done with this file. 4.5 big files

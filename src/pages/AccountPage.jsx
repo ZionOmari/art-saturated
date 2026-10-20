@@ -472,14 +472,14 @@ function Profile() {
                       ? (o.items || []).filter(i => i.category === 'Art')
                       : (mine.length ? mine : (o.items || []))
                     const artTotal = artItems.reduce((s, i) => s + (Number(i.price) * (i.qty || 1)), 0)
-                    const payout   = (artTotal * 0.90).toFixed(2)
+                    const payout   = artTotal.toFixed(2)
                     return (
                       <li key={o.id} style={{ borderBottom: '1px solid #e8e0d4', paddingBottom: '16px', marginBottom: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                           <span style={{ fontFamily: 'monospace', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', color: statusColor[o.status] || 'rgb(var(--color-warm-gray))' }}>{o.status}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))' }}>
-                              ${payout} <span style={{ color: 'rgb(var(--color-warm-gray))', fontSize: '10px' }}>after 10% commission</span>
+                              ${payout} <span style={{ color: 'rgb(var(--color-warm-gray))', fontSize: '10px' }}>yours in full</span>
                             </span>
                             {isOwner && <button onClick={() => archiveOrder(o.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: '11px', color: 'rgb(var(--color-warm-gray))', textDecoration: 'underline' }}>Archive</button>}
                           </div>
@@ -980,7 +980,7 @@ function Profile() {
               <p style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-warm-gray))', marginBottom: '14px' }}>Terms</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {[
-                  ['10% commission', 'on listed sales through the shop'],
+                  ['0% commission', 'you keep the full price of everything you sell'],
                   ['$7.99/month', 'membership — unlimited uploads, no per-listing fee'],
                   ['0% on commissions', 'custom work is arranged directly — no platform cut'],
                 ].map(([term, desc]) => (

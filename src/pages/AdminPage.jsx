@@ -893,14 +893,13 @@ function StoreConfigPanel() {
     getDoc(doc(db, 'settings', 'storeConfig')).then(snap => {
       const d = snap.exists() ? snap.data() : {}
       setForm({
-        commissionRate:       d.commissionRate       ?? 0.10,
         taxRate:              d.taxRate              ?? 0.07,
         bundleDealEnabled:    d.bundleDeal?.enabled     ?? false,
         bundleDealMinQty:     d.bundleDeal?.minQty      ?? 2,
         bundleDealPct:        d.bundleDeal?.discountPct ?? 10,
         shipFrom:             { ...EMPTY_SHIP_FROM, ...(d.shipFromAddress || {}) },
       })
-    }).catch(() => setForm({ commissionRate: 0.10, taxRate: 0.07, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, shipFrom: { ...EMPTY_SHIP_FROM } }))
+    }).catch(() => setForm({ taxRate: 0.07, bundleDealEnabled: false, bundleDealMinQty: 2, bundleDealPct: 10, shipFrom: { ...EMPTY_SHIP_FROM } }))
   }, [])
 
   async function handleSave() {
@@ -908,7 +907,6 @@ function StoreConfigPanel() {
     setSaving(true)
     try {
       await setDoc(doc(db, 'settings', 'storeConfig'), {
-        commissionRate:        Number(form.commissionRate),
         taxRate:               Number(form.taxRate),
         bundleDeal: {
           enabled:     !!form.bundleDealEnabled,
@@ -933,22 +931,6 @@ function StoreConfigPanel() {
   return (
     <div style={{ maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
 
-      {/* Commission */}
-      <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-warm-gray mb-4">Artist Commission</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="number" min="0" max="1" step="0.01"
-            value={form.commissionRate}
-            onChange={e => setForm(f => ({ ...f, commissionRate: e.target.value }))}
-            style={{ ...inp, maxWidth: '100px' }}
-          />
-          <span className="font-mono text-[12px] text-warm-gray">
-            ({Math.round(Number(form.commissionRate) * 100)}% of sale price)
-          </span>
-        </div>
-        <p className="font-mono text-[11px] text-warm-gray mt-2">Enter as decimal — e.g. 0.10 for 10%</p>
-      </div>
 
       {/* Tax */}
       <div>

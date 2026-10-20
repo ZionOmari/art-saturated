@@ -1170,34 +1170,6 @@ exports.onOrderStatusChanged = fn().firestore
       ).catch(console.error)
     }
 
-    if (after.status === 'completed' && after.sellerId) {
-      const [sellerSnap, configSnap] = await Promise.all([
-        admin.firestore().doc(`users/${after.sellerId}`).get(),
-        admin.firestore().doc('settings/storeConfig').get(),
-      ])
-      const seller         = sellerSnap.data()
-      if (!seller?.email) return null
-      const cfg = configSnap.exists ? configSnap.data() : {}
-      // One commission rate. The 5% "local drop-off" rate ended with the
-      // physical storefront (online only since Oct 2026).
-      const commissionRate = cfg.commissionRate ?? after.commission ?? 0.10
-      const commissionPct  = Math.round(commissionRate * 100)
-      const commissionAmt  = (after.total * commissionRate).toFixed(2)
-      const payout         = (after.total * (1 - commissionRate)).toFixed(2)
-      await sendEmail(seller.email,
-        `Sale Complete — $${payout} Payout Scheduled`,
-        fmtEmail(seller.name, [
-          'Your sale is complete!',
-          '',
-          `Order total: $${after.total}`,
-          `Commission (${commissionPct}%): -$${commissionAmt}`,
-          `Your payout: $${payout}`,
-          '',
-          'Payouts release 7 days after order completion.',
-        ]),
-      ).catch(console.error)
-    }
-
     return null
   })
 
