@@ -1,147 +1,129 @@
-# Path forward — artsaturated.com
+# Art Saturated — how it works, and what's next
 
-Written 2026-08-10. Everything below is committed and deployed; the site is live
-and consistent with this repo.
+Rewritten 2026-10-20 during the foundation-to-crown revision. **This is the one
+current document.** Older audits live in `archive/` and are history, not
+instructions. If something here stops being true, fix this file in the same
+commit.
 
 ---
 
-## 1. The one thing that actually matters
+## 1. Still to do
 
-**No customer has ever completed a purchase on this site.** Exactly one payment
-exists in the Stripe account's history (March 2026, $20, via an off-site Payment
-Link — not the shop checkout).
+### Owner decisions open
+- **Artist commission: 0% or 10%?** The upload page and listing promise
+  *"You keep the full sale price. No commission"* (`artistPayout = price`), but
+  `onOrderStatusChanged` emails the seller *"Commission (10%) … Your payout"*
+  when an order completes (`storeConfig.commissionRate`, default 0.10). Pick
+  one; both places must agree.
+- **How artists actually get paid.** Every payment lands in the shop's Stripe
+  account. There is no automated payout to artists.
 
-Everything in the payment path has been fixed and unit-tested, but the happy path
-has **never run for real**:
+### Revision levels remaining
+- **Level 4 (code structure):** 4.4 docs — done with this file. 4.5 big files
+  (`AdminPage.jsx` ~2.9k lines, `AccountPage.jsx` ~1.2k) is split as Levels 5–6
+  touch them, not rewritten for its own sake.
+- **Level 5 (product):** the core goal — *get artists uploading and take the
+  leg work out of CD printing.* Known gaps: artists can't list music, CD
+  printing is separate from artist uploads, artists have no page to manage
+  their own listings, the "Test Artist" QA account is public in /artists and
+  the sitemap.
+- **Level 6 (crown):** design, polish, search visibility.
 
-- checkout → Stripe → settlement → stock decrement → confirmation emails
-- digital download delivery (signed URL generation is unverified)
-- artist membership → upload
-- order messaging
+### Owner-only tasks
+- **Live test purchase — deliberately the LAST step.** No shop checkout has
+  ever completed (Stripe's whole history: one $20 Payment Link sale, Mar 2026).
+  Buy something cheap with a real card, refund it in Stripe. Watch:
+  `firebase functions:log --only stripeWebhook,reconcileStripePayments -n 20 --project art-saturated`
+- Enable Stripe's Customer Portal (Dashboard → Settings → Billing → Customer
+  portal) so "Manage billing" works for artist members.
+- Set a ship-from address in Admin → Store Settings — label purchase refuses
+  without it.
+- Delete the old OneDrive copy of the project (its `functions/.env` still holds
+  old copies of the keys). Optionally rotate those keys afterwards.
 
-**Do this first: buy something cheap on your own site with a real card, then
-refund it in Stripe.** Cost is a ~30¢ fee. It either proves the money path works
-or surfaces the last real bug. Watch it with:
+---
+
+## 2. What the site is
+
+Online-only shop and artist platform (the Parnell Ave storefront closed Oct
+2026 — never reintroduce pickup, a street address, or "in store" copy).
+
+**Routes:** `/home` `/shop` `/shop/:slug` `/cart` `/about` `/consult`
+`/cd-printing` `/artists` `/artists/:slug` `/gallery-upload` `/account`
+`/admin` `/login` `/payment-success` `/payment-cancelled`. Retired URLs
+(`/book`, `/workshop`, `/events/*`, `/magazine/*`, `/preorder/*`, `/mystery`,
+`/submit-art`, `/order/cd`) redirect.
+
+- **Shop** — products in `products`. Shipping is live carrier rates by weight
+  (Shippo), quoted to the customer and re-verified at checkout.
+- **Sellers** — a $7.99/month member lists art, sculpture or clothing at
+  `/gallery-upload`; it goes live immediately (no review queue). The owner's
+  Review tab and public reports are the moderation. `firestore.rules` is the
+  real boundary — see the products rule and `tests/rules.test.js`.
+- **Artist profiles** — `/artists/:slug`, custom URL via `artistSlugs`, blog
+  posts in `blogPosts`, commission inquiries (`commissionRequests`) go
+  straight to the artist.
+- **CD printing** — made-to-order configurator, paid upfront. Prices live only
+  in `functions/cdPricing.mjs` (shared by page and server; the server reprices).
+- **Consultations** — `/consult`, video call only, paid at the session.
+- **Admin** — `/admin`: products, orders, review, bookings, CD orders, store
+  config, users, private collection (`archive`), Discogs lookup.
+
+### Server (17 Cloud Functions, `functions/index.js`)
+Checkout, billing and shipping use the **Firestore request/response pattern**:
+the page writes a doc (`checkoutRequests`, `billingRequests`,
+`shippingRequests`, `aiRequests` for Discogs), a function answers on the same
+doc. Client side, `src/lib/firestoreRequest.js` is the one helper for that.
+
+Payments settle in `handlePaidSession()`, reached two ways: the public
+`stripeWebhook` (instant) and `reconcileStripePayments` (every 5 min, safety
+net). A `stripeSessions/{id}` lock makes double delivery harmless. Unknown or
+retired payment types land in `orphanedPayments` and email the owner — never
+silently settled.
+
+---
+
+## 3. Working on it
 
 ```bash
-firebase functions:log --only reconcileStripePayments -n 20 --project art-saturated
+cd C:\dev\art-saturated          # NOT the old OneDrive copy
+npm test                         # 99 tests: vitest + Firestore emulator
+npm run lint                     # bug-only lint (undefined names, hooks, dead code)
+npm run build
+node scripts/audit-payments.mjs 90   # read-only Stripe check
 ```
 
-Settlement runs on a 5-minute poller, so allow up to 5 minutes before worrying.
+CI (GitHub Actions, on push to `master`) runs lint, tests and build.
 
----
-
-## 2. Two dashboard tasks (no code needed)
-
-**Enable Stripe's Customer Portal** — Stripe Dashboard → Settings → Billing →
-Customer portal. Until this is on, the "Manage billing" button in an artist's
-account shows a plain "not set up yet" message. Cancel/resume already work
-without it.
-
-**Lift the org policy blocking public function invokers** — Google Cloud Console
-→ IAM & Admin → Organization Policies → `constraints/iam.allowedPolicyMemberDomains`,
-add an exception for project `art-saturated`. This is the single highest-leverage
-fix available and repairs three things at once:
-
-- the Stripe webhook (payments settle instantly instead of on a 5-minute poll)
-- shipping label purchase in the admin Orders tab (currently 403, so it cannot work)
-- every callable function, including a proper download button for digital goods
-
-Afterwards, redeploy `stripeWebhook` with `runWith({ invoker: 'public' })` — the
-code path already exists and needs no changes.
-
----
-
-## 3. Known gaps, in priority order
-
-| Gap | Notes |
-|---|---|
-| Preview-clip uploader is in the wrong category block | The Track Previews field renders only when Category = Art, so an album (`Physical Media`) can't get preview clips at all. One-line move in `AdminPage.jsx` |
-| Weightless products ship free | `calcShipping` returns 0 when `weightOz` is unset. Cart copy is honest about it, but decide whether it's intended or a data gap |
-| Existing users carry stale `isPartner` / `student` fields | Inert — nothing reads them, rules keep them locked. Cosmetic cleanup only |
-| Admin `AdminPage.jsx` is ~600 KB | Owner-only page, so no customer impact. Split if it ever gets annoying |
-| Audit dimensions never run | performance, correctness, platform (mobile was completed 2026-08-10) |
-
----
-
-## 4. Things that will bite you if you don't know them
-
-**Cloud Functions are 403 for anything HTTP or callable.** An org policy blocks
-public invokers. The established workaround is a Firestore request/response
-document — see `onCheckoutRequestCreated` and `onBillingRequestCreated`. Do not
-add a new callable function; it will not be reachable.
-
-**Payments settle by polling, not webhook.** `reconcileStripePayments` runs every
-5 minutes and shares one code path (`handlePaidSession`) with the webhook, so the
-webhook starts working the moment the org policy is lifted, with no code change.
-A `stripeSessions/{id}` lock makes double-delivery safe.
-
-**Editing `functions/index.js`:**
-- `node --check` is a syntax check, **not** a load check. Always follow with
-  `cd functions && node -e "require('./index.js')"` — a removed helper still parses.
-- Never bound a function by "the next `exports.`" — helpers live between functions
-  and get silently swallowed. Watch for CRLF endings breaking naive regexes.
-- Never write code containing backticks/template literals through a bash heredoc.
-  It corrupts the file. Use an editor.
-
-**Deploying:**
+**Deploy:**
 ```bash
-firebase login --reauth            # the token expires often; login:list lies about it
-$env:FUNCTIONS_DISCOVERY_TIMEOUT="120"
-firebase deploy --only hosting,functions,firestore:rules --project art-saturated
+firebase login --reauth      # token expires often; login:list lies about it
+npm run build && node scripts/gen-sitemap.mjs
+firebase deploy --only hosting,functions,firestore:rules,storage --project art-saturated
 ```
-Firebase refuses to delete functions you removed from source. Delete explicitly:
-`firebase functions:delete <names> --region us-central1 --force`
+Add `--force` when functions were removed from source (Firebase deletes them).
 
-**Tests:** `npm test` (35 tests, vitest + Firestore emulator). **Never start the
-functions emulator in tests** — `functions/.env` holds live Stripe and Gmail
-credentials and triggers would fire for real.
-
-**Anyone can sell, and nothing is approved first.** A member ($7.99/month) lists
-art, sculpture or clothing at `/gallery-upload` and it goes **straight into the
-shop** — no review gate, no commission, the seller keeps the full price. Three
-things hold the line instead:
-
-1. the seller agreement they tick at upload (`TERMS_VERSION` in `data/storage.js`
-   — bump it if the wording changes materially),
-2. the **Review** tab in the admin panel: a swipe deck of everything not yet
-   looked at. Right clears, left flags (stays live, marked), and Take Down is a
-   separate deliberate button that sets `active: false`,
-3. **reports** — anyone, signed in or not, can report a listing from its product
-   page. They land in Review → Reported.
-
-`firestore.rules` is the real boundary here, not the UI: a member may only create
-a listing owned by themselves, priced above zero, unreviewed, within a field
-allowlist. `downloadPath` is deliberately absent from that allowlist — it names a
-file under `releases/` that settlement signs and emails, so a seller who could
-set it could have someone else's paid release delivered. `tests/rules.test.js`
-covers each of these; run `npm test` before touching that rule.
-
-Sculpture has no category of its own: it lives in Art and is filtered by
-`listingType === 'sculpture'`, which keeps `medium` as the seller's own words.
-
-**Paid downloads:** the product form has a "Paid Download" field (all categories).
-It uploads to `releases/<slug>/`, which is admin-only in `storage.rules`, and
-stores the **path** — never a download URL, because a `getDownloadURL` token is
-permanent and public. It can also list and reuse files already in `releases/`.
-The buyer's link is signed at settlement and emailed; there is still no download
-button, because callables are 403.
-
-**Images:** uploads are downscaled to 1600px and cached for a year automatically.
-If images ever get added outside the app, re-run
-`node scripts/backfill-image-cache.mjs --dry` (needs a service-account key).
-
----
-
-## 5. Useful one-liners
-
-```bash
-npm test                                   # 35 tests
-npm run build                              # vite build
-node scripts/audit-payments.mjs 90         # read-only Stripe reconciliation check
-firebase functions:list --project art-saturated
-```
-
-Dead-code check (walks imports from the entry points; should report 0 orphans):
-the reachability script used during the Aug 2026 cleanup — re-create it if you
-remove another feature, it caught 15 orphaned files nothing imported.
+### Things that will bite you
+- **Two `.env` files, neither in git.** Root `.env` = public web config
+  (`VITE_FIREBASE_*`). Without it the build *succeeds* but ships a site that
+  can't reach the database — and `gen-sitemap` prints "no firebase config".
+  `functions/.env` holds only `GMAIL_USER`.
+- **API keys are in Secret Manager**, not `.env`: `STRIPE_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`, `SHIPPO_API_KEY`, `DISCOGS_TOKEN`,
+  `GMAIL_APP_PASSWORD`. Set with `firebase functions:secrets:set NAME`. Every
+  function is built with `fn()` in `index.js`, which declares them;
+  `tests/functionsConfig.test.js` fails if one doesn't. Firebase refuses to
+  deploy if a secret name also appears in `functions/.env`.
+- **Never start the functions emulator in tests** — triggers would run against
+  real services. `npm test` starts only the Firestore emulator.
+- **Editing `functions/index.js`:** after any cut, load-check it —
+  `cd functions && GCLOUD_PROJECT=art-saturated node -e "require('./index.js')"`.
+  `node --check` only checks syntax.
+- **Mutation-testing a guard:** commit first, or restore from a copy. Never
+  `git checkout -- <file>` to undo a temporary change — it also discards every
+  uncommitted edit in that file.
+- **Org policy:** the Workspace org restricts public access by default; the
+  `art-saturated` project has an override so `stripeWebhook` can be public.
+  Only `stripeWebhook` should be public (a test enforces it).
+- **Service-account keys can't be created** (org policy), so scripts that need
+  one — e.g. `scripts/backfill-image-cache.mjs` — must run another way.
