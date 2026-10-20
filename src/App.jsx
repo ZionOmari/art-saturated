@@ -8,23 +8,22 @@ import FeedbackBubble    from './components/FeedbackBubble'
 import ProfileSetupModal from './components/ProfileSetupModal'
 import Spinner           from './components/Spinner'
 import { setCanonicalForRoute } from './lib/meta'
+import { isChunkLoadError, isReloading, reloadForStaleChunk } from './lib/staleChunk'
 
 // Top-level error boundary — prevents a single bad component from white-screening the app
 class ErrorBoundary extends Component {
   state = { error: null }
-  static getDerivedStateFromError(error) { return { error } }
+  static getDerivedStateFromError(error) {
+    // Stale page files from a previous deploy — start the reload during render
+    // so the error screen never flashes while the fresh page loads.
+    if (isChunkLoadError(error)) reloadForStaleChunk()
+    return { error }
+  }
   componentDidCatch(error, info) {
     console.error('ErrorBoundary caught:', error.name, error.message, info)
-    // ChunkLoadError = stale HTML referencing a chunk from a previous deploy.
-    // Auto-reload once to pull the latest index.html + fresh chunks.
-    const isChunkError = error.name === 'ChunkLoadError'
-      || /Loading chunk|Loading CSS chunk|Failed to fetch dynamically imported module|Importing a module script failed/i.test(error.message)
-    if (isChunkError && !sessionStorage.getItem('chunkReloaded')) {
-      sessionStorage.setItem('chunkReloaded', '1')
-      window.location.reload()
-    }
   }
   render() {
+    if (this.state.error && isReloading()) return <PageLoader />
     if (this.state.error) {
       return (
         <main className="pt-[60px] flex flex-col items-center justify-center min-h-screen px-6 gap-6"
@@ -33,10 +32,7 @@ class ErrorBoundary extends Component {
           <p className="font-mono text-[13px] text-warm-gray">
             {this.state.error?.message || 'An unexpected error occurred.'}
           </p>
-          <button className="btn-outline" onClick={() => {
-            sessionStorage.removeItem('chunkReloaded')
-            this.setState({ error: null })
-          }}>Try again</button>
+          <button className="btn-outline" onClick={() => this.setState({ error: null })}>Try again</button>
           <a href="/home" className="btn-outline">Go Home</a>
         </main>
       )
