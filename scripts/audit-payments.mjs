@@ -6,13 +6,14 @@
  * never got an email about?" — cross-check the order IDs it prints against the
  * Orders tab in /admin (filter: Paid).
  *
- * Reads STRIPE_SECRET_KEY from functions/.env. Makes no writes to Stripe or
+ * Reads STRIPE_SECRET_KEY from Secret Manager via the Firebase CLI (needs
+ * `firebase login`). Makes no writes to Stripe or
  * Firestore.
  *
  *   node scripts/audit-payments.mjs          # last 30 days
  *   node scripts/audit-payments.mjs 90       # last 90 days
  */
-import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -24,12 +25,9 @@ const Stripe    = require('stripe')
 const DAYS = Number(process.argv[2]) || 30
 
 function loadKey() {
-  const envPath = resolve(__dirname, '../functions/.env')
-  const line = readFileSync(envPath, 'utf8')
-    .split(/\r?\n/)
-    .find(l => l.startsWith('STRIPE_SECRET_KEY='))
-  if (!line) throw new Error('STRIPE_SECRET_KEY not found in functions/.env')
-  return line.slice('STRIPE_SECRET_KEY='.length).trim().replace(/^["']|["']$/g, '')
+  const key = execSync('firebase functions:secrets:access STRIPE_SECRET_KEY --project art-saturated', { encoding: 'utf8' }).trim()
+  if (!key.startsWith('sk_')) throw new Error('Could not read STRIPE_SECRET_KEY from Secret Manager — run firebase login --reauth')
+  return key
 }
 
 const stripe = Stripe(loadKey())
