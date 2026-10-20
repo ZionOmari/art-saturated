@@ -66,23 +66,26 @@ async function main() {
     const app = initializeApp(config)
     const db  = getFirestore(app)
 
+    // Each section stands alone: one failing query must not drop the others
+    // (a removed rule once took every product and artist out of the sitemap).
+    const section = async (label, fn) => {
+      try { await fn() } catch (err) { console.warn(`[sitemap] ${label} skipped (${err.message})`) }
+    }
+
     // Products → /shop/:slug
-    const prodSnap = await getDocs(collection(db, 'products'))
-    prodSnap.forEach(d => {
-      const p = d.data()
-      if (p.active === false || p.inBucket || p.inCollection || p.category === 'Mystery' || !p.slug) return
-      urls.push(urlTag(`/shop/${p.slug}`, '0.7', 'weekly'))
+    await section('products', async () => {
+      const prodSnap = await getDocs(collection(db, 'products'))
+      prodSnap.forEach(d => {
+        const p = d.data()
+        if (p.active === false || p.inBucket || p.inCollection || !p.slug) return
+        urls.push(urlTag(`/shop/${p.slug}`, '0.7', 'weekly'))
+      })
     })
 
-    // Public artists → /artists/:uid
-    const artSnap = await getDocs(query(collection(db, 'users'), where('artistPublic', '==', true)))
-    artSnap.forEach(d => urls.push(urlTag(`/artists/${d.id}`, '0.6', 'weekly')))
-
-    // Approved articles → /magazine/:slug
-    const artiSnap = await getDocs(query(collection(db, 'blogSubmissions'), where('status', '==', 'approved')))
-    artiSnap.forEach(d => {
-      const a = d.data()
-      urls.push(urlTag(`/magazine/${a.slug || d.id}`, '0.6', 'monthly'))
+    // Public artists → /artists/:uid (their blog posts render on the profile)
+    await section('artists', async () => {
+      const artSnap = await getDocs(query(collection(db, 'users'), where('artistPublic', '==', true)))
+      artSnap.forEach(d => urls.push(urlTag(`/artists/${d.id}`, '0.6', 'weekly')))
     })
 
     const target = writeSitemap(urls)
