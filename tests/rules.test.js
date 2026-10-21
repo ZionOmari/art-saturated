@@ -270,6 +270,27 @@ describe('seller listings', () => {
     await assertFails(updateDoc(doc(seller(), 'products/p11'), { price: 1 }))
   })
 
+  it('lets a seller hide, show and sell out their own listing', async () => {
+    // What the My Listings page does: Hide/Show toggles active, "Sold
+    // elsewhere" sets stock to 0.
+    await seed('users/buyer1', MEMBER)
+    await seed('products/p13', LISTING)
+    await assertSucceeds(updateDoc(doc(buyer(), 'products/p13'), { active: false }))
+    await assertSucceeds(updateDoc(doc(buyer(), 'products/p13'), { active: true }))
+    await assertSucceeds(updateDoc(doc(buyer(), 'products/p13'), { stock: 0 }))
+  })
+
+  it('stops a seller reviving or editing a listing the owner took down', async () => {
+    // Take Down (Review tab) sets moderation 'removed' + active false. Sellers
+    // can toggle active on their own listings, so without this a seller could
+    // republish a removed listing with one click.
+    await seed('users/buyer1', MEMBER)
+    await seed('products/p14', { ...LISTING, moderation: 'removed', active: false })
+    await assertFails(updateDoc(doc(buyer(), 'products/p14'), { active: true }))
+    await assertFails(updateDoc(doc(buyer(), 'products/p14'), { name: 'Renamed', price: 10 }))
+    await assertSucceeds(updateDoc(doc(owner(), 'products/p14'), { moderation: 'ok', active: true }))
+  })
+
   it('keeps deletes owner-only — orders reference product ids', async () => {
     await seed('users/buyer1', MEMBER)
     await seed('products/p12', LISTING)

@@ -150,10 +150,13 @@ service cloud.firestore {
       );
 
       // A seller edits their own listing only, and cannot touch the fields that
-      // decide whether it is theirs or whether it has been reviewed.
+      // decide whether it is theirs or whether it has been reviewed. A listing
+      // the owner took down (moderation 'removed') is frozen for the seller —
+      // otherwise toggling `active` would republish it.
       allow update: if isAdmin() || (
         isMember()
         && resource.data.sellerId == request.auth.uid
+        && resource.data.get('moderation', '') != 'removed'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
              'name', 'description', 'details', 'price', 'stock', 'active',
              'medium', 'dimensions', 'year', 'weightOz', 'garmentType', 'sizes',
