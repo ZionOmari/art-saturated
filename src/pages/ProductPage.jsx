@@ -369,7 +369,10 @@ export default function ProductPage() {
 
   // ── Stock helpers ──────────────────────────────────────────────────────────
   const stockNum   = (product.stock != null && product.stock !== '') ? Number(product.stock) : null
-  const outOfStock = stockNum !== null && stockNum <= 0
+  // Hidden by the artist, taken down, or parked: reachable by link but not for
+  // sale. Checkout refuses these server-side too; this just says so up front.
+  const unlisted   = product.active === false || !!product.inBucket || product.moderation === 'removed'
+  const outOfStock = unlisted || (stockNum !== null && stockNum <= 0)
   const lowStock   = stockNum !== null && stockNum > 0 && stockNum <= 5
 
   // ── Deposit handler ────────────────────────────────────────────────────────
@@ -427,7 +430,7 @@ export default function ProductPage() {
               )}
               {product.sold || outOfStock ? (
                 <span className="font-mono text-[10px] tracking-[0.12em] uppercase border border-warm-gray-light px-2 py-0.5 text-warm-gray">
-                  {product.sold ? 'Sold' : 'Out of Stock'}
+                  {product.sold ? 'Sold' : unlisted ? 'Not available' : 'Out of Stock'}
                 </span>
               ) : lowStock ? (
                 <span className="font-mono text-[10px] tracking-[0.12em] uppercase border border-earth px-2 py-0.5 text-earth">
@@ -551,7 +554,7 @@ export default function ProductPage() {
             {/* Configurator or standard add-to-cart */}
             {product.sold || outOfStock ? (
               <div className="w-full font-mono text-[11px] tracking-[0.15em] uppercase border border-warm-gray-light text-warm-gray py-4 text-center mb-3">
-                {product.sold ? 'This item has been sold' : 'Out of Stock'}
+                {product.sold ? 'This item has been sold' : unlisted ? 'Not available right now' : 'Out of Stock'}
               </div>
             ) : product.configurator === 'tree-of-life' ? (
               <TreeOfLifeConfigurator />

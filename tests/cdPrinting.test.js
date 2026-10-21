@@ -453,6 +453,29 @@ describe('onCheckoutRequestCreated — live shipping rates', () => {
     expect(created).toHaveLength(0)
   })
 
+  it('refuses to sell a hidden, taken-down or bucketed listing', async () => {
+    // A cart lives in localStorage and product URLs get shared, so a buyer can
+    // still reach a listing after the artist hides it or the owner takes it down.
+    // The page check is cosmetic; this is the one that holds.
+    const cases = {
+      hidden:  { active: false },
+      removed: { active: false, moderation: 'removed' },
+      bucket:  { inBucket: true },
+    }
+    for (const [id, extra] of Object.entries(cases)) {
+      await db.doc(`products/${id}`).set({ name: id, price: 15, category: 'Art', stock: 1, ...extra })
+      await db.doc(`orders/o-${id}`).set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })
+      await seedQuote(db, { kind: 'cart', itemsKey: `${id}×1` })
+      const res = await run({
+        type: 'order', uid: 'u1', orderId: `o-${id}`, customerEmail: 'b@example.com',
+        items: [{ id, name: id, qty: 1 }], shippingMethod: 'ship', ...SHIP,
+      })
+      expect(res.status, id).toBe('error')
+      expect(res.error, id).toMatch(/no longer available/)
+    }
+    expect(created).toHaveLength(0)
+  })
+
   it('charges no shipping on a download-only order', async () => {
     await db.doc('products/d1').set({ name: 'Album (download)', price: 8, category: 'Physical Media', downloadPath: 'releases/album.zip' })
     await db.doc('orders/ord3').set({ uid: 'u1', status: 'pending', paymentStatus: 'pending' })

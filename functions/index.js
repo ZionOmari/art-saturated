@@ -344,7 +344,10 @@ exports.onCheckoutRequestCreated = fn({ timeoutSeconds: 120 })
       for (const item of (items || [])) {
         if (!item.id) continue
         const pSnap = await admin.firestore().collection('products').doc(item.id).get()
-        if (!pSnap.exists || pSnap.data().sold) {
+        // Hidden by the artist, taken down by the owner, or parked in the bucket:
+        // not for sale, even from a stale cart or a shared link.
+        const pd = pSnap.exists ? pSnap.data() : null
+        if (!pd || pd.sold || pd.active === false || pd.inBucket || pd.moderation === 'removed') {
           await safeUpdate({ status: 'error', error: `"${item.name || 'An item'}" is no longer available.` })
           return
         }
