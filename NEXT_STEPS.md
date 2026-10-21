@@ -21,8 +21,8 @@ commit.
   touch them, not rewritten for its own sake.
 - **Level 5 (product):** the core goal — *get artists uploading and take the
   leg work out of CD printing.* Known gaps: artists can't list music, CD
-  printing is separate from artist uploads, artists have no page to manage
-  their own listings.
+  printing is separate from artist uploads. (Artists manage their listings in
+  Account → My Listings since 2026-10-20.)
 - **Level 6 (crown):** design, polish, search visibility.
 
 ### Owner-only tasks
@@ -87,6 +87,9 @@ npm test                         # 99 tests: vitest + Firestore emulator
 npm run lint                     # bug-only lint (undefined names, hooks, dead code)
 npm run build
 node scripts/audit-payments.mjs 90   # read-only Stripe check
+npm run emulators                # LOCAL auth+firestore+storage only (never functions)
+node scripts/seed-emulator.mjs   # test seller + listings in every state
+npm run dev:emulator             # site against the local emulators
 ```
 
 CI (GitHub Actions, on push to `master`) runs lint, tests and build.

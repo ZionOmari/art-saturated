@@ -12,6 +12,7 @@ import Spinner from '../components/Spinner'
 import MessageThread from '../components/MessageThread'
 import OrderThread from '../components/OrderThread'
 import ArtistMembershipPanel from '../components/ArtistMembershipPanel'
+import MyListings from '../components/MyListings'
 import { ArtistReturnAddress, ArtistShipmentPanel } from '../components/ArtistShipping'
 
 // ── Shared input style ────────────────────────────────────────────────────────
@@ -431,6 +432,7 @@ function Profile() {
         <button style={tabBtn(tab === 'activity')}    onClick={() => setTab('activity')}>Activity</button>
         {isCreator && (
           <>
+            <button style={tabBtn(tab === 'listings')} onClick={() => setTab('listings')}>My Listings</button>
             <button style={tabBtn(tab === 'commissions')} onClick={() => setTab('commissions')}>Commissions</button>
             <button style={tabBtn(tab === 'blog')} onClick={() => setTab('blog')}>Blog</button>
           </>
@@ -622,6 +624,15 @@ function Profile() {
           )}
 
         </div>
+      )}
+
+      {/* ── My Listings (creator) ─────────────────────────────── */}
+      {tab === 'listings' && isCreator && (
+        <MyListings
+          uid={user.uid}
+          isMember={profile?.artistSubActive === true}
+          onAddNew={() => navigate('/gallery-upload')}
+        />
       )}
 
       {/* ── Commission Requests (creator) ─────────────────────── */}
@@ -996,7 +1007,7 @@ function Profile() {
               Upload Your Work →
             </button>
             <button
-              onClick={() => navigate(`/artists/${user.uid}`)}
+              onClick={() => setTab('listings')}
               style={{ marginLeft: '16px', fontFamily: 'monospace', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgb(var(--color-warm-gray))', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
             >
               View Your Listings

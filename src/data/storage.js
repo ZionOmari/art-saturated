@@ -128,6 +128,24 @@ export async function createSellerListing(fields) {
   })
 }
 
+/** A seller's own listings, newest first (My Listings tab). */
+export async function fetchMyListings(uid) {
+  const snap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', uid)))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+}
+
+// The fields a seller may change on their own listing — mirrors the seller
+// update allowlist in firestore.rules. Anything else is dropped here so a
+// stray field can't turn a valid edit into a rules denial.
+const SELLER_EDITABLE = ['name', 'description', 'price', 'stock', 'active']
+
+export async function updateMyListing(productId, patch) {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => SELLER_EDITABLE.includes(k)))
+  await updateDoc(doc(db, 'products', productId), clean)
+}
+
 /** Owner-only: mark a listing reviewed / flagged, or take it down. */
 export async function setListingModeration(productId, moderation, extra = {}) {
   await updateDoc(doc(db, 'products', productId), { moderation, ...extra })

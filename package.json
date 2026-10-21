@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "dev:emulator": "vite --mode emulator",
-    "emulators": "firebase emulators:start",
+    "emulators": "firebase emulators:start --only auth,firestore,storage --project art-saturated",
     "build": "vite build",
     "preview": "vite preview",
     "test": "firebase emulators:exec --only firestore \"vitest run\"",
