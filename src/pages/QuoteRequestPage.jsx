@@ -9,7 +9,8 @@ import {
   CD_PRICING, PACKAGING_LABELS, STOCK_LABELS, priceCdOrder, reorderWindow, fmtCents,
   normalizePromoCode, findPromoByHash, promoProblem,
 } from '../../functions/cdPricing.mjs'
-import { aspectOf, sizePx } from '../../functions/cdSpecs.mjs'
+import { DEFAULT_SPINE, aspectOf, normalizeSpine, sizePx, spineText } from '../../functions/cdSpecs.mjs'
+import { spineTextFits } from '../lib/cdSpine'
 import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
 import CdCropper from '../components/CdCropper'
@@ -116,6 +117,42 @@ const PANEL_LABELS = {
 // Every slot's shape and print size comes from functions/cdSpecs.mjs.
 const slotFor = (spec, extra) => ({ spec, aspect: aspectOf(spec), ...extra })
 
+// Spine: its own design by default, or the customer's tray art carried through.
+function SpinePicker({ spine, onChange, fits }) {
+  const option = (value, label, sub) => {
+    const on = spine.spineStyle === value
+    return (
+      <button type="button" onClick={() => onChange({ ...spine, spineStyle: value })}
+        className="flex-1 text-left px-3 py-2 font-mono border"
+        style={{ borderColor: on ? '#1a1814' : '#c5bfb5', background: on ? '#1a1814' : 'transparent', color: on ? '#f5f2ec' : '#1a1814' }}>
+        <span className="block text-[11px] uppercase tracking-widest">{label}</span>
+        <span className="block text-[10px] opacity-70">{sub}</span>
+      </button>
+    )
+  }
+  return (
+    <div className="mt-3">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-warm-gray mb-2">Spine</p>
+      <div className="flex gap-2">
+        {option('solid', 'Separate spine', 'Solid color with your title')}
+        {option('extend', 'Extend my art', 'Your tray art runs through it')}
+      </div>
+      {spine.spineStyle === 'solid' && (
+        <label className="flex items-center gap-2 mt-2 font-mono text-[10px] text-warm-gray">
+          <input type="color" value={spine.spineColor} aria-label="Spine color"
+            onChange={e => onChange({ ...spine, spineColor: e.target.value })} />
+          Spine color
+        </label>
+      )}
+      {!fits && (
+        <p className="font-mono text-[10px] mt-2" style={{ color: '#b03020' }}>
+          Your artist name and title are too long for the spine. Shorten them so the text stays readable.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Pay-a-saved-order view (?pay=<id>) ────────────────────────────────────────
 // Reached from the emailed link: an unfinished checkout, or the balance on a
 // deposit order. A fresh Stripe session is made on every click, so the link
@@ -158,7 +195,7 @@ function PayExisting({ orderId }) {
             {order.qty} × {PACKAGING_LABELS[order.packaging] || order.packaging} · Order #{order.id.slice(-6).toUpperCase()}
           </p>
           <div className="mb-8 text-left">
-            <CdMockup packaging={order.packaging} panelCount={order.panelCount}
+            <CdMockup packaging={order.packaging} panelCount={order.panelCount} spine={normalizeSpine(order)}
               art={order.artwork || {}} artistName={order.artistName} albumTitle={order.albumTitle} />
           </div>
           {due > 0 ? (
@@ -376,7 +413,7 @@ function Reorder({ sourceId }) {
         </p>
       </div>
 
-      <CdMockup packaging={src.packaging} panelCount={src.panelCount}
+      <CdMockup packaging={src.packaging} panelCount={src.panelCount} spine={normalizeSpine(src)}
         art={src.artwork || {}} artistName={src.artistName} albumTitle={src.albumTitle} />
 
       {!w.open ? (
@@ -467,6 +504,7 @@ export default function QuoteRequestPage() {
   // Artwork: key → { blob, preview }
   const [art, setArt] = useState({})
   const [crop, setCrop] = useState(null)   // { key, file, title, spec }
+  const [spine, setSpine] = useState(DEFAULT_SPINE)
 
   const [agree, setAgree] = useState({ final: false, rights: false, terms: false })
   const [busy,    setBusy]    = useState(false)
@@ -598,6 +636,7 @@ export default function QuoteRequestPage() {
         trackList:  tracks.map(t => t.title.trim()),
         audioFiles,
         artwork,
+        ...(packaging === 'jewel' ? normalizeSpine(spine) : {}),
         // Display copy only — the function reprices from the config above.
         estimatedTotal: price.total / 100,
         status:        'pending_payment',
@@ -705,7 +744,7 @@ export default function QuoteRequestPage() {
               onChange={e => setInfo(i => ({ ...i, albumTitle: e.target.value }))} />
           </div>
           {packaging === 'jewel' && (
-            <p className="font-mono text-[10px] text-warm-gray mt-2">The spines will read: {info.artistName || 'ARTIST'} — {info.albumTitle || 'TITLE'}</p>
+            <p className="font-mono text-[10px] text-warm-gray mt-2">The spines will read: {spineText(info.artistName, info.albumTitle)}</p>
           )}
         </Section>
 
@@ -761,13 +800,14 @@ export default function QuoteRequestPage() {
               <ArtSlot label={s.label} aspect={s.aspect} preview={art[s.key]?.preview}
                 onPick={file => setCrop({ key: s.key, file, title: s.label, spec: s.spec })}
                 onRemove={() => setArtBlob(s.key, null)} />
-              <p className="font-mono text-[10px] text-warm-gray mt-1">Back of the case, seen through the plastic. Spine text is added for you.</p>
+              <p className="font-mono text-[10px] text-warm-gray mt-1">Back of the case, seen through the plastic.</p>
+              <SpinePicker spine={spine} onChange={setSpine} fits={spineTextFits(info.artistName, info.albumTitle)} />
             </div>
           ))}
         </Section>
 
         <Section n={printed ? 7 : 6} title="Preview">
-          <CdMockup packaging={packaging} panelCount={panelCount}
+          <CdMockup packaging={packaging} panelCount={panelCount} spine={spine}
             art={Object.fromEntries(Object.entries(art).filter(([, a]) => a).map(([k, a]) => [k, a.preview]))}
             artistName={info.artistName} albumTitle={info.albumTitle} />
         </Section>

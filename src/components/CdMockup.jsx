@@ -9,7 +9,7 @@
 // Uploaded panel and tray art includes bleed (extra image past the cut line),
 // so <Art spec> scales it up to show only what's inside the cut — the mock-up
 // shows what will actually be printed. Sizes come from functions/cdSpecs.mjs.
-import { PIECES, guides } from '../../functions/cdSpecs.mjs'
+import { DEFAULT_SPINE, PIECES, SPINE_ROTATION, guides, spineText, spineTextColor } from '../../functions/cdSpecs.mjs'
 
 const TRAY = PIECES.tray
 const DISC = guides('disc')
@@ -74,29 +74,31 @@ function CaseFront({ url, slim }) {
   )
 }
 
-function SpineText({ text, side }) {
+function SpineText({ text, side, style }) {
+  const solid = style.spineStyle === 'solid'
   return (
     <div style={{
       position: 'absolute', top: 0, bottom: 0, [side]: 0, width: `${(TRAY.spineW / TRAY.trimW) * 100}%`,
-      background: 'rgba(26,24,20,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+      background: solid ? style.spineColor : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
     }}>
       <span style={{
-        writingMode: 'vertical-rl', transform: side === 'left' ? 'rotate(180deg)' : 'none',
+        writingMode: 'vertical-rl', transform: SPINE_ROTATION[side] < 0 ? 'rotate(180deg)' : 'none',
         fontFamily: 'monospace', fontSize: '7px', letterSpacing: '0.12em', textTransform: 'uppercase',
-        color: '#f5f2ec', whiteSpace: 'nowrap',
+        color: solid ? spineTextColor(style.spineColor) : '#fff', whiteSpace: 'nowrap',
+        textShadow: solid ? 'none' : '0 0 2px #000, 0 0 2px #000',
       }}>{text}</span>
     </div>
   )
 }
 
 // Jewel tray card, spines included (see PIECES.tray).
-function JewelBack({ url, spine }) {
+function JewelBack({ url, text, spine }) {
   return (
     <div style={{ position: 'relative', aspectRatio: '142 / 125', background: '#2a2724', borderRadius: '3px', boxShadow: '0 6px 14px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ position: 'relative', width: '96%', aspectRatio: `${TRAY.trimW} / ${TRAY.trimH}`, overflow: 'hidden' }}>
         <Art url={url} label="Tray card" spec="tray" />
-        <SpineText text={spine} side="left" />
-        <SpineText text={spine} side="right" />
+        <SpineText text={text} side="left" style={spine} />
+        <SpineText text={text} side="right" style={spine} />
       </div>
       <Sheen />
     </div>
@@ -150,8 +152,7 @@ function Spread({ left, right }) {
   )
 }
 
-export default function CdMockup({ packaging, panelCount = 4, art = {}, artistName, albumTitle }) {
-  const spine = `${artistName || 'Artist'} — ${albumTitle || 'Title'}`
+export default function CdMockup({ packaging, panelCount = 4, art = {}, artistName, albumTitle, spine = DEFAULT_SPINE }) {
   const discUrl = art.disc || (packaging !== 'sleeve' ? art.panel0 : null)
   const backUrl = panelCount === 4 ? art.panel3 : art.panel1
 
@@ -161,7 +162,7 @@ export default function CdMockup({ packaging, panelCount = 4, art = {}, artistNa
   } else {
     tiles.push(<Tile key="front" label="Front"><CaseFront url={art.panel0} slim={packaging === 'slim'} /></Tile>)
     tiles.push(packaging === 'jewel'
-      ? <Tile key="back" label="Back + spines"><JewelBack url={art.tray} spine={spine} /></Tile>
+      ? <Tile key="back" label="Back + spines"><JewelBack url={art.tray} text={spineText(artistName, albumTitle)} spine={spine} /></Tile>
       : <Tile key="back" label="Back"><SlimBack url={backUrl} /></Tile>)
     if (panelCount === 4) tiles.push(<Tile key="spread" label="Inside booklet"><Spread left={art.panel1} right={art.panel2} /></Tile>)
   }

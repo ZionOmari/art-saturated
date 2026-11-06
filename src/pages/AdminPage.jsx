@@ -16,6 +16,8 @@ import { addTask, addBusinessDays, todayStr } from '../data/tasks'
 import { applyWatermark } from '../lib/watermark'
 import BarcodeScanner from '../components/BarcodeScanner'
 import CdMockup from '../components/CdMockup'
+import PrintFilesButton from '../components/PrintFilesButton'
+import { normalizeSpine } from '../../functions/cdSpecs.mjs'
 import { shippingRequest, getShopOrderRates } from '../lib/shipping'
 
 // ─────────────────────────────────────────────────────────────────────
@@ -793,7 +795,7 @@ function CDOrdersPanel() {
               {!legacy && o.packaging && (
                 <div style={{ maxWidth: '420px' }}>
                   <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Mock-up</p>
-                  <CdMockup packaging={o.packaging} panelCount={o.panelCount}
+                  <CdMockup packaging={o.packaging} panelCount={o.panelCount} spine={normalizeSpine(o)}
                     art={o.artwork || {}} artistName={o.artistName} albumTitle={o.albumTitle} />
                 </div>
               )}
@@ -801,6 +803,7 @@ function CDOrdersPanel() {
               {/* Artwork */}
               {art.length > 0 && (
                 <div>
+                  <div className="mb-3"><PrintFilesButton order={o} /></div>
                   <p className="font-mono text-[10px] uppercase tracking-widest text-earth mb-2">Artwork (click for full size)</p>
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     {art.map(([k, url]) => (

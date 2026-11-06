@@ -168,6 +168,7 @@ exports.onCheckoutRequestCreated = fn({ timeoutSeconds: 120 })
             ...p.config,
             artistName: src.artistName, albumTitle: src.albumTitle,
             trackList: src.trackList || [], audioFiles: src.audioFiles || [], artwork: src.artwork || {},
+            spineStyle: src.spineStyle || 'solid', spineColor: src.spineColor || '#000000',
             projectId: src.projectId || order.reorderOf,
           }
         } else {
