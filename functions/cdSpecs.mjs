@@ -76,3 +76,21 @@ export function guides(key) {
   if (p.round) { g.hole = p.holeD / p.trimW; g.hub = p.hubD / p.trimW }
   return g
 }
+
+// Below GOOD_DPI a print looks soft; below MIN_DPI it looks visibly blurry.
+export const GOOD_DPI = 225
+export const MIN_DPI  = 150
+
+/**
+ * Print resolution an image will have, given how many of its own pixels fall
+ * across the width of the crop frame.
+ */
+export function effectiveDpi(key, sourcePxAcross) {
+  return Math.round(sourcePxAcross / sizeIn(key).w)
+}
+
+/** 'good' | 'soft' | 'blurry' for a resolution from effectiveDpi(). */
+export function dpiQuality(dpi) {
+  if (dpi >= GOOD_DPI) return 'good'
+  return dpi >= MIN_DPI ? 'soft' : 'blurry'
+}

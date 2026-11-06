@@ -1,7 +1,7 @@
 // Print-size contract for CD packaging (functions/cdSpecs.mjs).
 // These numbers decide whether a printer accepts a file, so they're pinned.
 import { describe, it, expect } from 'vitest'
-import { DPI, BLEED_IN, PIECES, sizeIn, sizePx, aspectOf, guides } from '../functions/cdSpecs.mjs'
+import { DPI, BLEED_IN, PIECES, sizeIn, sizePx, aspectOf, guides, effectiveDpi, dpiQuality } from '../functions/cdSpecs.mjs'
 
 describe('cdSpecs — print sizes', () => {
   it('prints at 300 dpi with an 1/8" bleed', () => {
@@ -47,5 +47,20 @@ describe('cdSpecs — print sizes', () => {
     const { spines, trim } = guides('tray')
     expect(spines[0]).toBeGreaterThan(trim.x)
     expect(spines[0] + spines[1]).toBeCloseTo(1, 6)
+  })
+
+  it('reports the resolution an image will actually print at', () => {
+    expect(effectiveDpi('panel', 1500)).toBe(300)   // exact fit
+    expect(effectiveDpi('panel', 750)).toBe(150)    // half the pixels
+    expect(effectiveDpi('disc', 1417)).toBe(300)
+    expect(effectiveDpi('tray', 1847)).toBe(300)
+  })
+
+  it('grades print resolution at the 225 and 150 dpi lines', () => {
+    expect(dpiQuality(300)).toBe('good')
+    expect(dpiQuality(225)).toBe('good')
+    expect(dpiQuality(224)).toBe('soft')
+    expect(dpiQuality(150)).toBe('soft')
+    expect(dpiQuality(149)).toBe('blurry')
   })
 })

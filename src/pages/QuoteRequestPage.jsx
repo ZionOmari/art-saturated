@@ -12,6 +12,7 @@ import {
 import { aspectOf, sizePx } from '../../functions/cdSpecs.mjs'
 import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
+import CdCropper from '../components/CdCropper'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 import ShippingRates from '../components/ShippingRates'
@@ -19,116 +20,6 @@ import ShippingRates from '../components/ShippingRates'
 // CD printing — made to order and paid at checkout, so the customer supplies
 // everything needed to print up front and nobody has to email back and forth.
 // Price is recomputed server-side from the saved config (functions/cdPricing.mjs).
-
-// ── Image cropper ─────────────────────────────────────────────────────────────
-// aspect = width / height. Output is sized for 300dpi print.
-const CROP_BOX = 280
-
-function ImageCropperModal({ file, title, aspect, outW, round = false, onDone, onCancel }) {
-  const boxW = aspect >= 1 ? CROP_BOX : Math.round(CROP_BOX * aspect)
-  const boxH = aspect >= 1 ? Math.round(CROP_BOX / aspect) : CROP_BOX
-  const outH = Math.round(outW / aspect)
-
-  const [imgSrc,    setImgSrc]    = useState('')
-  const [pos,       setPos]       = useState({ x: 0, y: 0 })
-  const [scale,     setScale]     = useState(1)
-  const [natSize,   setNatSize]   = useState({ w: 0, h: 0 })
-  const [dragging,  setDragging]  = useState(false)
-  const [lastMouse, setLastMouse] = useState({ x: 0, y: 0 })
-  const imgRef    = useRef()
-  const canvasRef = useRef()
-
-  useEffect(() => {
-    const url = URL.createObjectURL(file)
-    setImgSrc(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-
-  function handleLoad(e) {
-    const { naturalWidth: w, naturalHeight: h } = e.target
-    setNatSize({ w, h })
-    const s = Math.max(boxW / w, boxH / h)
-    setScale(s)
-    setPos({ x: -(w * s - boxW) / 2, y: -(h * s - boxH) / 2 })
-  }
-
-  function clamp(p) {
-    const dw = natSize.w * scale, dh = natSize.h * scale
-    return {
-      x: Math.min(0, Math.max(p.x, boxW - dw)),
-      y: Math.min(0, Math.max(p.y, boxH - dh)),
-    }
-  }
-
-  function down(cx, cy) { setDragging(true); setLastMouse({ x: cx, y: cy }) }
-  function move(cx, cy) {
-    if (!dragging) return
-    setPos(p => clamp({ x: p.x + cx - lastMouse.x, y: p.y + cy - lastMouse.y }))
-    setLastMouse({ x: cx, y: cy })
-  }
-  function up() { setDragging(false) }
-
-  function handleDone() {
-    const canvas = canvasRef.current
-    canvas.width = outW
-    canvas.height = outH
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(imgRef.current, -pos.x / scale, -pos.y / scale, boxW / scale, boxH / scale, 0, 0, outW, outH)
-    canvas.toBlob(blob => onDone(blob), 'image/jpeg', 0.92)
-  }
-
-  // Source pixels inside the frame vs. what print needs.
-  const lowRes = natSize.w > 0 && boxW / scale < outW * 0.66
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ background: '#f5f1e8', padding: '24px', maxWidth: '360px', width: '100%' }}>
-        <p style={{ fontFamily: 'monospace', fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: '#7a5030', marginBottom: '4px' }}>
-          {title}
-        </p>
-        <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#a08060', marginBottom: '14px' }}>
-          Drag to reposition. What's inside the frame is what gets printed.
-        </p>
-
-        <div
-          style={{ width: boxW, height: boxH, overflow: 'hidden', position: 'relative', background: '#1a1814', cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none', touchAction: 'none', margin: '0 auto' }}
-          onMouseDown={e => { e.preventDefault(); down(e.clientX, e.clientY) }}
-          onMouseMove={e => move(e.clientX, e.clientY)}
-          onMouseUp={up} onMouseLeave={up}
-          onTouchStart={e => { e.preventDefault(); down(e.touches[0].clientX, e.touches[0].clientY) }}
-          onTouchMove={e => { e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY) }}
-          onTouchEnd={up}
-        >
-          {imgSrc && (
-            <img ref={imgRef} src={imgSrc} onLoad={handleLoad} draggable={false} alt=""
-              style={{ position: 'absolute', left: pos.x, top: pos.y, width: natSize.w * scale, height: natSize.h * scale, pointerEvents: 'none' }} />
-          )}
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', border: '2px solid rgba(255,255,255,0.25)', boxSizing: 'border-box', borderRadius: round ? '50%' : 0, boxShadow: round ? '0 0 0 400px rgba(0,0,0,0.45)' : 'none' }} />
-          {round && (
-            <div style={{ position: 'absolute', left: '50%', top: '50%', width: '15%', height: '15%', transform: 'translate(-50%,-50%)', borderRadius: '50%', background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }} />
-          )}
-        </div>
-
-        {lowRes && (
-          <p style={{ fontFamily: 'monospace', fontSize: '10px', color: '#a04020', marginTop: '10px' }}>
-            This image is low resolution and may print blurry.
-          </p>
-        )}
-
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-        <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-          <button onClick={handleDone} style={{ flex: 1, fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '11px', background: '#1a1814', color: '#f5f2ec', border: 'none', cursor: 'pointer' }}>
-            Use this crop
-          </button>
-          <button onClick={onCancel} style={{ fontFamily: 'monospace', fontSize: '11px', color: '#7a5030', background: 'none', border: '1px solid #a08060', padding: '11px 16px', cursor: 'pointer' }}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const inp = {
@@ -223,7 +114,7 @@ const PANEL_LABELS = {
 }
 
 // Every slot's shape and print size comes from functions/cdSpecs.mjs.
-const slotFor = (spec, extra) => ({ spec, aspect: aspectOf(spec), outW: sizePx(spec).w, ...extra })
+const slotFor = (spec, extra) => ({ spec, aspect: aspectOf(spec), ...extra })
 
 // ── Pay-a-saved-order view (?pay=<id>) ────────────────────────────────────────
 // Reached from the emailed link: an unfinished checkout, or the balance on a
@@ -575,7 +466,7 @@ export default function QuoteRequestPage() {
 
   // Artwork: key → { blob, preview }
   const [art, setArt] = useState({})
-  const [crop, setCrop] = useState(null)   // { key, file, title, aspect, round }
+  const [crop, setCrop] = useState(null)   // { key, file, title, spec }
 
   const [agree, setAgree] = useState({ final: false, rights: false, terms: false })
   const [busy,    setBusy]    = useState(false)
@@ -853,22 +744,22 @@ export default function QuoteRequestPage() {
 
         <Section n={printed ? 6 : 5} title="Artwork">
           <p className="font-mono text-[10px] mb-4" style={noteBox}>
-            Upload finished, print-ready art. We print exactly what's in the crop frame — nothing gets redesigned.
+            Upload your finished art. The cropper shows where each piece gets cut, and we print exactly what's inside the cut line — nothing gets redesigned.
             {printed && ' Include your track list on the back panel if you want it printed.'}
-            {' '}Aim for at least 1500px square.
+            {' '}For sharp printing, use images at least {sizePx('panel').w}px wide ({sizePx('tray').w}px for the tray card).
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {slots.filter(s => !s.wide).map(s => (
               <ArtSlot key={s.key} label={s.label} aspect={s.aspect} round={s.round} optionalNote={s.optionalNote}
                 preview={art[s.key]?.preview}
-                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, outW: s.outW, round: s.round })}
+                onPick={file => setCrop({ key: s.key, file, title: s.label, spec: s.spec })}
                 onRemove={() => setArtBlob(s.key, null)} />
             ))}
           </div>
           {slots.filter(s => s.wide).map(s => (
             <div key={s.key} className="mt-4 max-w-sm">
               <ArtSlot label={s.label} aspect={s.aspect} preview={art[s.key]?.preview}
-                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, outW: s.outW })}
+                onPick={file => setCrop({ key: s.key, file, title: s.label, spec: s.spec })}
                 onRemove={() => setArtBlob(s.key, null)} />
               <p className="font-mono text-[10px] text-warm-gray mt-1">Back of the case, seen through the plastic. Spine text is added for you.</p>
             </div>
@@ -982,12 +873,10 @@ export default function QuoteRequestPage() {
       )}
 
       {crop && (
-        <ImageCropperModal
+        <CdCropper
           file={crop.file}
           title={crop.title}
-          aspect={crop.aspect}
-          outW={crop.outW}
-          round={crop.round}
+          spec={crop.spec}
           onDone={blob => { setArtBlob(crop.key, blob); setCrop(null) }}
           onCancel={() => setCrop(null)}
         />
