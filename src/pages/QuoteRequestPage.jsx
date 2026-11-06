@@ -9,6 +9,7 @@ import {
   CD_PRICING, PACKAGING_LABELS, STOCK_LABELS, priceCdOrder, reorderWindow, fmtCents,
   normalizePromoCode, findPromoByHash, promoProblem,
 } from '../../functions/cdPricing.mjs'
+import { aspectOf, sizePx } from '../../functions/cdSpecs.mjs'
 import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
 import Footer from '../components/Footer'
@@ -23,7 +24,7 @@ import ShippingRates from '../components/ShippingRates'
 // aspect = width / height. Output is sized for 300dpi print.
 const CROP_BOX = 280
 
-function ImageCropperModal({ file, title, aspect = 1, outW = 1500, round = false, onDone, onCancel }) {
+function ImageCropperModal({ file, title, aspect, outW, round = false, onDone, onCancel }) {
   const boxW = aspect >= 1 ? CROP_BOX : Math.round(CROP_BOX * aspect)
   const boxH = aspect >= 1 ? Math.round(CROP_BOX / aspect) : CROP_BOX
   const outH = Math.round(outW / aspect)
@@ -221,8 +222,8 @@ const PANEL_LABELS = {
   4: ['Front cover', 'Inside left', 'Inside right', 'Back of booklet'],
 }
 
-// Jewel tray card: 5.91" × 4.63" incl. spines → aspect ≈ 1.276, 1772px at 300dpi.
-const TRAY_ASPECT = 5.91 / 4.63
+// Every slot's shape and print size comes from functions/cdSpecs.mjs.
+const slotFor = (spec, extra) => ({ spec, aspect: aspectOf(spec), outW: sizePx(spec).w, ...extra })
 
 // ── Pay-a-saved-order view (?pay=<id>) ────────────────────────────────────────
 // Reached from the emailed link: an unfinished checkout, or the balance on a
@@ -600,10 +601,10 @@ export default function QuoteRequestPage() {
 
   // Artwork slots required by the current config
   const slots = useMemo(() => {
-    const s = [{ key: 'disc', label: 'Disc face', round: true, aspect: 1, optional: printed, optionalNote: printed ? 'Optional — uses front cover' : null }]
+    const s = [slotFor('disc', { key: 'disc', label: 'Disc face', round: true, optional: printed, optionalNote: printed ? 'Optional — uses front cover' : null })]
     if (printed) {
-      PANEL_LABELS[panelCount].forEach((label, i) => s.push({ key: `panel${i}`, label, aspect: 1 }))
-      if (packaging === 'jewel') s.push({ key: 'tray', label: 'Tray card (back)', aspect: TRAY_ASPECT, wide: true })
+      PANEL_LABELS[panelCount].forEach((label, i) => s.push(slotFor('panel', { key: `panel${i}`, label })))
+      if (packaging === 'jewel') s.push(slotFor('tray', { key: 'tray', label: 'Tray card (back)', wide: true }))
     }
     return s
   }, [printed, panelCount, packaging])
@@ -860,14 +861,14 @@ export default function QuoteRequestPage() {
             {slots.filter(s => !s.wide).map(s => (
               <ArtSlot key={s.key} label={s.label} aspect={s.aspect} round={s.round} optionalNote={s.optionalNote}
                 preview={art[s.key]?.preview}
-                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, round: s.round })}
+                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, outW: s.outW, round: s.round })}
                 onRemove={() => setArtBlob(s.key, null)} />
             ))}
           </div>
           {slots.filter(s => s.wide).map(s => (
             <div key={s.key} className="mt-4 max-w-sm">
               <ArtSlot label={s.label} aspect={s.aspect} preview={art[s.key]?.preview}
-                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, outW: 1772 })}
+                onPick={file => setCrop({ key: s.key, file, title: s.label, aspect: s.aspect, outW: s.outW })}
                 onRemove={() => setArtBlob(s.key, null)} />
               <p className="font-mono text-[10px] text-warm-gray mt-1">Back of the case, seen through the plastic. Spine text is added for you.</p>
             </div>
@@ -985,7 +986,7 @@ export default function QuoteRequestPage() {
           file={crop.file}
           title={crop.title}
           aspect={crop.aspect}
-          outW={crop.outW || 1500}
+          outW={crop.outW}
           round={crop.round}
           onDone={blob => { setArtBlob(crop.key, blob); setCrop(null) }}
           onCancel={() => setCrop(null)}

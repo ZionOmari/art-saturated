@@ -5,10 +5,30 @@
 // download URLs in admin and on reorders:
 //   disc, panel0 (front), panel1..panel3, tray (jewel back)
 // It is a layout guide, not a colour proof.
+//
+// Uploaded panel and tray art includes bleed (extra image past the cut line),
+// so <Art spec> scales it up to show only what's inside the cut — the mock-up
+// shows what will actually be printed. Sizes come from functions/cdSpecs.mjs.
+import { PIECES, guides } from '../../functions/cdSpecs.mjs'
+
+const TRAY = PIECES.tray
+const DISC = guides('disc')
 
 const LABEL = { fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8a857d', textAlign: 'center', marginTop: '6px' }
 
-function Art({ url, label, style }) {
+function Art({ url, label, spec, style }) {
+  if (url && spec && PIECES[spec].bleed) {
+    const t = guides(spec).trim
+    return (
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', ...style }}>
+        <img src={url} alt={label} style={{
+          position: 'absolute', display: 'block', maxWidth: 'none',
+          width: `${100 / t.w}%`, height: `${100 / t.h}%`,
+          left: `${(-t.x / t.w) * 100}%`, top: `${(-t.y / t.h) * 100}%`,
+        }} />
+      </div>
+    )
+  }
   if (url) return <img src={url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', ...style }} />
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'repeating-linear-gradient(45deg,#ece6d9,#ece6d9 6px,#e4ddcd 6px,#e4ddcd 12px)', ...style }}>
@@ -47,7 +67,7 @@ function CaseFront({ url, slim }) {
         ))}
       </div>
       <div style={{ position: 'absolute', right: '2.5%', top: '2%', height: '96%', aspectRatio: '1 / 1', overflow: 'hidden' }}>
-        <Art url={url} label="Front cover" />
+        <Art url={url} label="Front cover" spec="panel" />
       </div>
       <Sheen />
     </div>
@@ -57,7 +77,7 @@ function CaseFront({ url, slim }) {
 function SpineText({ text, side }) {
   return (
     <div style={{
-      position: 'absolute', top: 0, bottom: 0, [side]: 0, width: '4.2%',
+      position: 'absolute', top: 0, bottom: 0, [side]: 0, width: `${(TRAY.spineW / TRAY.trimW) * 100}%`,
       background: 'rgba(26,24,20,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
     }}>
       <span style={{
@@ -69,12 +89,12 @@ function SpineText({ text, side }) {
   )
 }
 
-// Jewel tray card: 150 × 118 mm including two 6.5 mm spines.
+// Jewel tray card, spines included (see PIECES.tray).
 function JewelBack({ url, spine }) {
   return (
     <div style={{ position: 'relative', aspectRatio: '142 / 125', background: '#2a2724', borderRadius: '3px', boxShadow: '0 6px 14px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ position: 'relative', width: '96%', aspectRatio: '5.91 / 4.63', overflow: 'hidden' }}>
-        <Art url={url} label="Tray card" />
+      <div style={{ position: 'relative', width: '96%', aspectRatio: `${TRAY.trimW} / ${TRAY.trimH}`, overflow: 'hidden' }}>
+        <Art url={url} label="Tray card" spec="tray" />
         <SpineText text={spine} side="left" />
         <SpineText text={spine} side="right" />
       </div>
@@ -88,20 +108,20 @@ function SlimBack({ url }) {
     <div style={{ position: 'relative', aspectRatio: '142 / 125', background: '#2a2724', borderRadius: '3px', boxShadow: '0 6px 14px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
       {/* clear back: the disc tray shows through */}
       <div style={{ position: 'absolute', left: '2.5%', top: '2%', height: '96%', aspectRatio: '1 / 1', overflow: 'hidden' }}>
-        <Art url={url} label="Back cover" />
+        <Art url={url} label="Back cover" spec="panel" />
       </div>
       <Sheen />
     </div>
   )
 }
 
-// Disc: 120 mm, 15 mm hole, clear hub out to ~36 mm.
-export function Disc({ url }) {
+// Disc face with its centre hole and clear hub (see PIECES.disc).
+export function Disc({ url, spec }) {
   return (
     <div style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: '50%', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.25)', background: '#d8d4cc' }}>
-      <Art url={url} label="Disc face" />
-      <div style={{ position: 'absolute', left: '50%', top: '50%', width: '30%', height: '30%', transform: 'translate(-50%,-50%)', borderRadius: '50%', background: 'radial-gradient(circle, rgba(230,228,222,0.95) 0%, rgba(200,198,192,0.9) 100%)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.1)' }} />
-      <div style={{ position: 'absolute', left: '50%', top: '50%', width: '12.5%', height: '12.5%', transform: 'translate(-50%,-50%)', borderRadius: '50%', background: '#faf8f4', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
+      <Art url={url} label="Disc face" spec={spec} />
+      <div style={{ position: 'absolute', left: '50%', top: '50%', width: `${DISC.hub * 100}%`, height: `${DISC.hub * 100}%`, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: 'radial-gradient(circle, rgba(230,228,222,0.95) 0%, rgba(200,198,192,0.9) 100%)', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.1)' }} />
+      <div style={{ position: 'absolute', left: '50%', top: '50%', width: `${DISC.hole * 100}%`, height: `${DISC.hole * 100}%`, transform: 'translate(-50%,-50%)', borderRadius: '50%', background: '#faf8f4', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
     </div>
   )
 }
@@ -123,8 +143,8 @@ function Sleeve({ url }) {
 function Spread({ left, right }) {
   return (
     <div style={{ position: 'relative', aspectRatio: '2 / 1', display: 'flex', boxShadow: '0 4px 12px rgba(0,0,0,0.18)' }}>
-      <div style={{ flex: 1, overflow: 'hidden', borderRight: '1px solid rgba(0,0,0,0.15)' }}><Art url={left} label="Inside left" /></div>
-      <div style={{ flex: 1, overflow: 'hidden' }}><Art url={right} label="Inside right" /></div>
+      <div style={{ flex: 1, overflow: 'hidden', borderRight: '1px solid rgba(0,0,0,0.15)' }}><Art url={left} label="Inside left" spec="panel" /></div>
+      <div style={{ flex: 1, overflow: 'hidden' }}><Art url={right} label="Inside right" spec="panel" /></div>
       <Sheen />
     </div>
   )
@@ -145,7 +165,7 @@ export default function CdMockup({ packaging, panelCount = 4, art = {}, artistNa
       : <Tile key="back" label="Back"><SlimBack url={backUrl} /></Tile>)
     if (panelCount === 4) tiles.push(<Tile key="spread" label="Inside booklet"><Spread left={art.panel1} right={art.panel2} /></Tile>)
   }
-  tiles.push(<Tile key="disc" label={art.disc || packaging === 'sleeve' ? 'Disc' : 'Disc (front cover art)'}><div style={{ width: '82%', margin: '0 auto' }}><Disc url={discUrl} /></div></Tile>)
+  tiles.push(<Tile key="disc" label={art.disc || packaging === 'sleeve' ? 'Disc' : 'Disc (front cover art)'}><div style={{ width: '82%', margin: '0 auto' }}><Disc url={discUrl} spec={art.disc ? 'disc' : 'panel'} /></div></Tile>)
 
   return (
     <div>
