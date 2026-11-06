@@ -65,9 +65,9 @@ function stripe() {
 }
 
 // ── Email helper — removes repeated from/to boilerplate ──────────────────────
-function sendEmail(to, subject, text) {
+function sendEmail(to, subject, text, extra = {}) {
   const from = process.env.GMAIL_USER || FROM_EMAIL
-  const message = { to, subject, text, from: `"${STORE_NAME}" <${from}>` }
+  const message = { to, subject, text, from: `"${STORE_NAME}" <${from}>`, ...extra }
   if (process.env.FUNCTIONS_TEST) {
     _sentMail.push(message)
     return Promise.resolve({ messageId: 'captured-by-test' })
@@ -1920,10 +1920,29 @@ async function notifyCdPaid(id, o, { stage, paid, fullyPaid, amountPaidCents, to
 exports.onQuoteRequestUpdated = fn().firestore.document('quoteRequests/{id}').onUpdate(async (change, ctx) => {
   const before = change.before.data() || {}
   const o      = change.after.data() || {}
-  if (before.status === o.status || !o.email || !o.uid) return null  // legacy quote requests have no uid
+  if (!o.email || !o.uid) return null  // legacy quote requests have no uid
+  const newNote = !!o.ownerNote && before.ownerNoteId !== o.ownerNoteId
+  if (before.status === o.status && !newNote) return null
   try {
     initSG()
     const id = ctx.params.id
+
+    // The owner wrote to the customer from the admin, with or without a hold.
+    if (newNote) {
+      await sendEmail(o.email, `A note about your CD order — ${cdRef(id)}`, fmtEmail(o.name, [
+        o.ownerNote,
+        '',
+        o.status === 'on_hold'
+          ? "Your order is paused until we hear from you. Just reply to this email."
+          : 'Just reply to this email if you have any questions.',
+      ]), { replyTo: OWNER_EMAIL })
+    }
+
+    if (before.status === 'on_hold' && ['paid', 'in_production'].includes(o.status)) {
+      await sendEmail(o.email, `Your CD order is back in production — ${cdRef(id)}`, fmtEmail(o.name, [
+        `Thanks. Your ${o.qty} CDs are back in production.`,
+      ]), { replyTo: OWNER_EMAIL })
+    }
     const balance = (o.totalCents || 0) - (o.amountPaidCents || 0)
     const owesBalance = o.paymentStatus === 'deposit_paid' && balance > 0
 

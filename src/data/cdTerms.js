@@ -3,7 +3,7 @@
 // what checkout actually charges.
 import { CD_PRICING, fmtCents } from '../../functions/cdPricing.mjs'
 
-export const CD_TERMS_UPDATED = 'September 29, 2026'
+export const CD_TERMS_UPDATED = 'November 6, 2026'
 
 const months = Math.round(CD_PRICING.retentionDays / 30.5)
 
@@ -21,12 +21,14 @@ export const CD_TERMS = [
   {
     title: 'Your files',
     items: [
-      'We print exactly what you upload, cropped as shown in the crop frame. There is no proof or design round. The mock-up on the order page shows the layout.',
+      'You approve a proof at checkout, and we print exactly what you approve, cut at the lines shown. There is no separate design round.',
+      'Your approved proof is final. Check it carefully before you pay.',
+      'If we notice a possible problem with your files, we may pause your order and contact you. This is a courtesy, not a review: we do not proofread or check every order.',
       'Screen colors and printed colors differ slightly. Paper and cardstock each change how colors look. This is not a defect.',
       'Keep text and important details at least 1/8" (3 mm) from every edge. On jewel case tray cards, the outer 1/4" on each side is covered by the spines.',
-      'Low-resolution images print blurry. We warn you on the crop screen, but we print what you submit.',
+      'Low-resolution images print blurry. We show the print resolution on the crop screen and on your proof, but we print what you approve.',
       'Audio is burned as uploaded, in the track order you list. We do not master, normalize, or edit audio. One disc holds up to 80 minutes.',
-      'Typos, colour choices, audio problems, and image quality in your files are your responsibility and are not reprinted free of charge.',
+      'Typos, color choices, audio problems, and image quality in what you approve are your responsibility and are not reprinted free of charge.',
     ],
   },
   {

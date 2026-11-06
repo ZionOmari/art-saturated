@@ -16,7 +16,7 @@ const DISC = guides('disc')
 
 const LABEL = { fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8a857d', textAlign: 'center', marginTop: '6px' }
 
-function Art({ url, label, spec, style }) {
+export function Art({ url, label, spec, style }) {
   if (url && spec && PIECES[spec].bleed) {
     const t = guides(spec).trim
     return (

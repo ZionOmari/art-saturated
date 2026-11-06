@@ -14,6 +14,7 @@ import { spineTextFits } from '../lib/cdSpine'
 import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
 import CdCropper from '../components/CdCropper'
+import CdProof from '../components/CdProof'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 import ShippingRates from '../components/ShippingRates'
@@ -506,7 +507,7 @@ export default function QuoteRequestPage() {
   const [crop, setCrop] = useState(null)   // { key, file, title, spec }
   const [spine, setSpine] = useState(DEFAULT_SPINE)
 
-  const [agree, setAgree] = useState({ final: false, rights: false, terms: false })
+  const [agree, setAgree] = useState({ proof: false, final: false, rights: false, terms: false })
   const [busy,    setBusy]    = useState(false)
   const [busyMsg, setBusyMsg] = useState('')
   const [error,   setError]   = useState('')
@@ -543,12 +544,16 @@ export default function QuoteRequestPage() {
   artRef.current = art
   useEffect(() => () => Object.values(artRef.current).forEach(a => a?.preview && URL.revokeObjectURL(a.preview)), [])
 
-  function setArtBlob(key, blob) {
+  function setArtBlob(key, blob, dpi) {
     setArt(prev => {
       if (prev[key]?.preview) URL.revokeObjectURL(prev[key].preview)
-      return { ...prev, [key]: blob ? { blob, preview: URL.createObjectURL(blob) } : undefined }
+      return { ...prev, [key]: blob ? { blob, dpi, preview: URL.createObjectURL(blob) } : undefined }
     })
   }
+
+  // A proof approves one exact version: anything that changes it needs a new look.
+  useEffect(() => { setAgree(a => (a.proof ? { ...a, proof: false } : a)) },
+    [art, spine, info.artistName, info.albumTitle, packaging, panelCount])
 
   // ── Tracks ──
   function addTrack()          { setTracks(t => [...t, { title: '', file: null }]) }
@@ -587,7 +592,8 @@ export default function QuoteRequestPage() {
     if (tracks.some(t => !t.file))         return 'Every track needs an audio file.'
     const missing = slots.find(s => !s.optional && !art[s.key])
     if (missing) return `Add artwork for: ${missing.label}.`
-    if (!agree.final || !agree.rights || !agree.terms) return 'Tick all three boxes to confirm.'
+    if (!agree.proof) return 'Please check your proof and approve it.'
+    if (!agree.final || !agree.rights || !agree.terms) return 'Tick all the boxes to confirm.'
     return null
   }
 
@@ -637,6 +643,10 @@ export default function QuoteRequestPage() {
         audioFiles,
         artwork,
         ...(packaging === 'jewel' ? normalizeSpine(spine) : {}),
+        // The record of what was approved: when, and how sharp each piece was.
+        proofApprovedAt: serverTimestamp(),
+        proofQuality: Object.fromEntries(Object.entries(art).filter(([, a]) => a?.dpi).map(([k, a]) => [k, a.dpi])),
+        termsVersion: CD_TERMS_UPDATED,
         // Display copy only — the function reprices from the config above.
         estimatedTotal: price.total / 100,
         status:        'pending_payment',
@@ -806,7 +816,16 @@ export default function QuoteRequestPage() {
           ))}
         </Section>
 
-        <Section n={printed ? 7 : 6} title="Preview">
+        <Section n={printed ? 7 : 6} title="Your proof">
+          <p className="font-mono text-[10px] mb-4" style={noteBox}>
+            This is exactly what we'll print, cut to size. Check your spelling, track list and image quality here.
+            We print what you approve.
+          </p>
+          <div className="mb-8">
+            <CdProof packaging={packaging} panelCount={panelCount} art={art} spine={spine}
+              artistName={info.artistName} albumTitle={info.albumTitle} />
+          </div>
+          <p style={eyebrow}>In the case</p>
           <CdMockup packaging={packaging} panelCount={panelCount} spine={spine}
             art={Object.fromEntries(Object.entries(art).filter(([, a]) => a).map(([k, a]) => [k, a.preview]))}
             artistName={info.artistName} albumTitle={info.albumTitle} />
@@ -881,14 +900,15 @@ export default function QuoteRequestPage() {
           </div>
 
           <p className="font-mono text-[10px] mb-4" style={noteBox}>
-            No proof round: production starts when payment clears, and we print your files as submitted.
+            You approve your proof above, and production starts when payment clears.
             {rush ? `Ready in under ${CD_PRICING.rushDays} days.` : 'Ready in 7–14 days.'} Reorder within {Math.round(CD_PRICING.retentionDays / 30.5)} months with no setup fee at the same rate.
             {' '}<a href="#terms" style={{ color: '#d4b870', textDecoration: 'underline' }}>Full terms</a>.
           </p>
 
           <div className="flex flex-col gap-2 mb-5 font-mono text-[11px] text-ink">
             {[
-              ['final',  'My audio and artwork are final and print-ready.'],
+              ['proof',  'I checked my proof and approve it. Print exactly this.'],
+              ['final',  'My audio and artwork are final.'],
               ['rights', 'I own or have the rights to everything I uploaded.'],
               ['terms',  'I agree to the CD Printing Terms of Service above.'],
             ].map(([k, label]) => (
@@ -917,7 +937,7 @@ export default function QuoteRequestPage() {
           file={crop.file}
           title={crop.title}
           spec={crop.spec}
-          onDone={blob => { setArtBlob(crop.key, blob); setCrop(null) }}
+          onDone={(blob, dpi) => { setArtBlob(crop.key, blob, dpi); setCrop(null) }}
           onCancel={() => setCrop(null)}
         />
       )}

@@ -17,6 +17,7 @@ import { applyWatermark } from '../lib/watermark'
 import BarcodeScanner from '../components/BarcodeScanner'
 import CdMockup from '../components/CdMockup'
 import PrintFilesButton from '../components/PrintFilesButton'
+import CdOrderReview from '../components/CdOrderReview'
 import { normalizeSpine } from '../../functions/cdSpecs.mjs'
 import { shippingRequest, getShopOrderRates } from '../lib/shipping'
 
@@ -629,7 +630,7 @@ function FeedbackPanel() {
 // the status emails the customer (onQuoteRequestUpdated), and marking a
 // deposit order "ready" sends them the balance link.
 const CD_STATUSES = ['paid', 'in_production', 'ready', 'shipped', 'completed', 'cancelled']
-const CD_STATUS_LABEL = { pending_payment: 'unpaid', paid: 'paid · queued', in_production: 'printing', ready: 'ready', shipped: 'shipped', completed: 'done', cancelled: 'cancelled',
+const CD_STATUS_LABEL = { pending_payment: 'unpaid', on_hold: 'on hold', paid: 'paid · queued', in_production: 'printing', ready: 'ready', shipped: 'shipped', completed: 'done', cancelled: 'cancelled',
   // legacy quote-request statuses
   pending: 'quote', confirmed: 'confirmed', fulfilled: 'fulfilled' }
 const CD_STATUS_COLOR = { pending_payment: '#8a857d', paid: '#b97a20', in_production: '#3a3a7a', ready: '#1a5c1a', shipped: '#1a5c1a', completed: '#555', cancelled: '#7a2020' }
@@ -853,6 +854,7 @@ function CDOrdersPanel() {
                       placeholder="Tracking number (fill in before marking shipped)"
                       className="font-mono text-[12px] px-3 py-2 border border-warm-gray-light bg-transparent" />
                   )}
+                  <CdOrderReview order={o} onPatch={patch => setOrders(prev => prev.map(x => x.id === o.id ? { ...x, ...patch } : x))} />
                   <div className="flex gap-2 flex-wrap">
                     {CD_STATUSES.filter(s => s !== 'shipped' || o.delivery === 'ship').map(s => (
                       <button key={s} onClick={() => setStatus(o, s)} disabled={o.status === 'pending_payment'}

@@ -107,6 +107,9 @@ export default function CdCropper({ file, title, spec, onDone, onCancel }) {
     setDrag({ x: cx, y: cy })
   }
 
+  const dpi     = nat.w ? effectiveDpi(spec, boxW / scale) : 0
+  const quality = QUALITY[dpiQuality(dpi)]
+
   function handleDone() {
     const canvas = document.createElement('canvas')
     canvas.width = outW
@@ -117,11 +120,9 @@ export default function CdCropper({ file, title, spec, onDone, onCancel }) {
     ctx.fillRect(0, 0, outW, outH)
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(imgRef.current, -pos.x / scale, -pos.y / scale, boxW / scale, boxH / scale, 0, 0, outW, outH)
-    canvas.toBlob(blob => onDone(blob), 'image/jpeg', 0.95)
+    canvas.toBlob(blob => onDone(blob, dpi), 'image/jpeg', 0.95)
   }
 
-  const dpi     = nat.w ? effectiveDpi(spec, boxW / scale) : 0
-  const quality = QUALITY[dpiQuality(dpi)]
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}>
