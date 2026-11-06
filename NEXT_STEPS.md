@@ -59,7 +59,8 @@ Online-only shop and artist platform (the Parnell Ave storefront closed Oct
 - **Artist profiles** — `/artists/:slug`, custom URL via `artistSlugs`, blog
   posts in `blogPosts`, commission inquiries (`commissionRequests`) go
   straight to the artist.
-- **CD printing** — made-to-order configurator, paid upfront. Prices live only
+- **CD printing** — made-to-order configurator, paid upfront. Admin → CD Orders →
+  Download print files builds exact-size PDFs and the disc image in the browser. Prices live only
   in `functions/cdPricing.mjs` (shared by page and server; the server reprices).
 - **Consultations** — `/consult`, video call only, paid at the session.
 - **Admin** — `/admin`: products, orders, review, bookings, CD orders, store
@@ -124,5 +125,10 @@ Add `--force` when functions were removed from source (Firebase deletes them).
 - **Org policy:** the Workspace org restricts public access by default; the
   `art-saturated` project has an override so `stripeWebhook` can be public.
   Only `stripeWebhook` should be public (a test enforces it).
+- **Storage CORS:** `cors.json` is applied to the bucket (Nov 2026). The CD print
+  package reads art in the browser, so a new site origin must be added there
+  and re-applied, or Download print files fails.
+- **Print sizes live only in `functions/cdSpecs.mjs`** (industry standard; no
+  printer spec sheet yet). If the printer publishes a template, change it there.
 - **Service-account keys can't be created** (org policy), so scripts that need
   one — e.g. `scripts/backfill-image-cache.mjs` — must run another way.
