@@ -13,6 +13,9 @@ const FS   = 'http://127.0.0.1:8080'
 const PROJECT = 'art-saturated'
 
 export const TEST_SELLER = { email: 'seller@test.local', password: 'local-test-only-1', name: 'Local Test Painter' }
+// Admin pages check for the owner's address, so a local copy of it is needed to
+// test them. It exists only inside the emulator; the password is local-only.
+export const TEST_OWNER = { email: 'zionomari@artsaturated.com', password: 'local-test-only-1', name: 'Local Owner' }
 
 async function ensureEmulators() {
   try {
@@ -71,6 +74,11 @@ async function main() {
     artistSubActive: true, artistPublic: true, profileComplete: true, createdAt: now,
   })
 
+  const ownerUid = await ensureUser(TEST_OWNER)
+  await setDoc(`users/${ownerUid}`, {
+    name: TEST_OWNER.name, email: TEST_OWNER.email, accountType: ['creator'], profileComplete: true, createdAt: now,
+  })
+
   const img = (seed) => `https://picsum.photos/seed/${seed}/400/400`
   const base = {
     category: 'Art', listingType: 'art', medium: 'ink', dimensions: '8x10', year: 2026,
@@ -93,7 +101,7 @@ async function main() {
       createdAt: new Date(now.getTime() - i * 60000),
     })
   }
-  console.log(`Seeded ${Object.keys(listings).length} listings for ${TEST_SELLER.email} (uid ${uid}).`)
+  console.log(`Seeded ${Object.keys(listings).length} listings for ${TEST_SELLER.email} (uid ${uid}), plus a local owner login.`)
 }
 
 main().catch((e) => { console.error(e.message); process.exit(1) })
