@@ -11,7 +11,6 @@ export default function Footer() {
         {[
           { label: 'Shop',          path: '/shop'    },
           { label: 'Consultations', path: '/consult' },
-          { label: 'CD Printing',   path: '/cd-printing' },
           { label: 'About',         path: '/about'   },
           { label: 'Cart',          path: '/cart'    },
         ].map(({ label, path }) => (

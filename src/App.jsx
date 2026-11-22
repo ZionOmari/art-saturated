@@ -41,6 +41,24 @@ class ErrorBoundary extends Component {
   }
 }
 
+// CD printing is pulled from the public site while it's being fixed (Nov 2026).
+// Everyone else is sent home; the owner still gets the page, marked as hidden,
+// so fixes can be tested on the real site. To relaunch: route straight to
+// <QuoteRequestPage /> again and restore the Navbar, Footer and sitemap links.
+const OWNER_EMAIL = 'zionomari@artsaturated.com'
+function CdPrintingGate() {
+  const { user } = useAuth()
+  if (user?.email !== OWNER_EMAIL) return <Navigate to="/home" replace />
+  return (
+    <>
+      <div role="status" style={{ position: 'sticky', top: '60px', zIndex: 40, background: '#b03020', color: '#fff', textAlign: 'center', fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 12px' }}>
+        HIDDEN FROM THE PUBLIC: only you can see CD printing while it's being fixed.
+      </div>
+      <QuoteRequestPage />
+    </>
+  )
+}
+
 // Lazy-loaded pages — each becomes its own chunk, only downloaded when visited
 const HomePage          = lazy(() => import('./pages/HomePage'))
 const ShopPage          = lazy(() => import('./pages/ShopPage'))
@@ -192,7 +210,7 @@ export default function App() {
           <Route path="/cart"        element={<CartPage />}    />
           <Route path="/about"       element={<AboutPage />}   />
           <Route path="/consult"     element={<ConsultPage />} />
-          <Route path="/cd-printing" element={<QuoteRequestPage />} />
+          <Route path="/cd-printing" element={<CdPrintingGate />} />
           <Route path="/artists"           element={<ArtistsPage />}       />
           <Route path="/artists/:slug"     element={<ArtistProfilePage />} />
           <Route path="/gallery-upload"    element={<GalleryUploadPage />} />

@@ -17,38 +17,6 @@ function shuffle(arr) {
 
 const FLORA_DARK = '#1a1208'
 
-function DarkHoverBtn({ children, onClick, fullWidth = false }) {
-  const [hovered, setHovered] = useState(false)
-  const [pressed, setPressed]  = useState(false)
-  const active = hovered || pressed
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setPressed(false) }}
-      onMouseDown={() => setPressed(true)}
-      onMouseUp={() => setPressed(false)}
-      style={{
-        display: fullWidth ? 'block' : 'inline-block',
-        width: fullWidth ? '100%' : undefined,
-        fontFamily: 'var(--font-mono, monospace)',
-        fontSize: '11px',
-        letterSpacing: '0.15em',
-        textTransform: 'uppercase',
-        border: `1px solid ${active ? FLORA_DARK : 'currentColor'}`,
-        padding: '0.875rem 2rem',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        background: active ? FLORA_DARK : 'transparent',
-        color: active ? '#f2ebe0' : 'inherit',
-        textAlign: 'center',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 function FilledBtn({ children, onClick, fullWidth = false }) {
   const [hovered, setHovered] = useState(false)
   return (
@@ -139,7 +107,6 @@ export default function HomePage() {
 
         <div className="flex items-center gap-4 flex-wrap">
           <FilledBtn onClick={() => navigate('/shop')}>Browse the Shop</FilledBtn>
-          <DarkHoverBtn onClick={() => navigate('/consult')}>Book a Consultation</DarkHoverBtn>
         </div>
 
         {/* Mobile columns — shown below CTA buttons on small screens */}
