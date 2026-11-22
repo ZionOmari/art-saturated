@@ -10,7 +10,6 @@ export default function Footer() {
       <nav className="flex gap-6 flex-wrap">
         {[
           { label: 'Shop',          path: '/shop'    },
-          { label: 'Consultations', path: '/consult' },
           { label: 'About',         path: '/about'   },
           { label: 'Cart',          path: '/cart'    },
         ].map(({ label, path }) => (

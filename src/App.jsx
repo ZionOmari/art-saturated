@@ -41,20 +41,21 @@ class ErrorBoundary extends Component {
   }
 }
 
-// CD printing is pulled from the public site while it's being fixed (Nov 2026).
-// Everyone else is sent home; the owner still gets the page, marked as hidden,
-// so fixes can be tested on the real site. To relaunch: route straight to
-// <QuoteRequestPage /> again and restore the Navbar, Footer and sitemap links.
+// Pulled from the public site (Nov 2026): for now the site is only artists
+// uploading art and people buying it. Everyone else is sent home; the owner
+// still gets the page under a banner, so it can be worked on and tested live.
+// To relaunch a page: route straight to it again and restore its Navbar,
+// Footer and sitemap links.
 const OWNER_EMAIL = 'zionomari@artsaturated.com'
-function CdPrintingGate() {
+function OwnerOnly({ what, children }) {
   const { user } = useAuth()
   if (user?.email !== OWNER_EMAIL) return <Navigate to="/home" replace />
   return (
     <>
       <div role="status" style={{ position: 'sticky', top: '60px', zIndex: 40, background: '#b03020', color: '#fff', textAlign: 'center', fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.08em', padding: '6px 12px' }}>
-        HIDDEN FROM THE PUBLIC: only you can see CD printing while it's being fixed.
+        HIDDEN FROM THE PUBLIC: only you can see {what}.
       </div>
-      <QuoteRequestPage />
+      {children}
     </>
   )
 }
@@ -209,8 +210,8 @@ export default function App() {
           <Route path="/shop/:slug"  element={<ProductPage />} />
           <Route path="/cart"        element={<CartPage />}    />
           <Route path="/about"       element={<AboutPage />}   />
-          <Route path="/consult"     element={<ConsultPage />} />
-          <Route path="/cd-printing" element={<CdPrintingGate />} />
+          <Route path="/consult"     element={<OwnerOnly what="consultations"><ConsultPage /></OwnerOnly>} />
+          <Route path="/cd-printing" element={<OwnerOnly what="CD printing"><QuoteRequestPage /></OwnerOnly>} />
           <Route path="/artists"           element={<ArtistsPage />}       />
           <Route path="/artists/:slug"     element={<ArtistProfilePage />} />
           <Route path="/gallery-upload"    element={<GalleryUploadPage />} />

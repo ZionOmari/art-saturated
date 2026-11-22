@@ -17,7 +17,6 @@ const ORIGIN = 'https://artsaturated.com'
 const CORE = [
   ['/',         '1.0', 'weekly'],
   ['/shop',     '0.9', 'daily'],
-  ['/consult',  '0.8', 'monthly'],
   ['/about',    '0.7', 'monthly'],
 ]
 
