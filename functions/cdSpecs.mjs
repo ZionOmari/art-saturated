@@ -156,6 +156,7 @@ export function spineFontPx(widthAtFull, maxLength) {
 
 // ── Print package ────────────────────────────────────────────────────────────
 const PANEL_NAMES = {
+  1: ['front'],
   2: ['front', 'back'],
   4: ['front', 'inside-left', 'inside-right', 'back'],
 }

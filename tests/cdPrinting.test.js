@@ -24,6 +24,14 @@ async function seedQuote(db, result, { id = 'sq', uid = 'u1' } = {}) {
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
 describe('priceCdOrder', () => {
+  it('sets the panels from the case type: jewel = front + tray card, slim = front + back', () => {
+    expect(normalizeCdConfig({ packaging: 'jewel', panelCount: 4 }).panelCount).toBe(1)
+    expect(normalizeCdConfig({ packaging: 'slim', panelCount: 4 }).panelCount).toBe(2)
+    expect(normalizeCdConfig({ packaging: 'sleeve', panelCount: 4 }).panelCount).toBe(0)
+    // A booklet used to be offered at the 2-print price; panel count can't change the price now.
+    expect(priceCdOrder({ qty: 50, packaging: 'jewel', panelCount: 4 }).total).toBe(priceCdOrder({ qty: 50, packaging: 'jewel', panelCount: 2 }).total)
+  })
+
   it('adds the setup fee once per order, not per disc', () => {
     const one = priceCdOrder({ qty: 1, packaging: 'jewel' })
     const two = priceCdOrder({ qty: 2, packaging: 'jewel' })

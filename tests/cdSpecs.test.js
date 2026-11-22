@@ -116,6 +116,12 @@ describe('cdSpecs — print package', () => {
     ])
   })
 
+  it('gives a jewel order its front cover, tray card and disc, and no spread', () => {
+    expect(names({ packaging: 'jewel', panelCount: 1, artwork: art('panel0', 'tray', 'disc') })).toEqual([
+      'booklet/panel-1-front.pdf', 'tray-card.pdf', 'disc-120mm.jpg',
+    ])
+  })
+
   it('joins the outside spread back-then-front, as it folds', () => {
     const spread = printFileList({ packaging: 'jewel', panelCount: 4, artwork: art('panel0', 'panel1', 'panel2', 'panel3') })
       .find(f => f.name.endsWith('spread-outside.pdf'))

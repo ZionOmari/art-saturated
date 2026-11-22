@@ -106,6 +106,8 @@ export const STOCK_LABELS = {
   cardstock: 'Cardstock',
 }
 
+export const PANEL_COUNT = { jewel: 1, slim: 2, sleeve: 0 }
+
 // Normalise whatever was submitted into a valid config. The function calls
 // this on data read back from Firestore, so it must never throw.
 export function normalizeCdConfig(raw = {}) {
@@ -115,7 +117,9 @@ export function normalizeCdConfig(raw = {}) {
   return {
     qty,
     packaging,
-    panelCount:   printed ? (Number(raw.panelCount) === 2 ? 2 : 4) : 0,
+    // Set by the packaging, never chosen: the price is 2 prints per case.
+    // Jewel = front cover + tray card; slim = front + back cover.
+    panelCount:   PANEL_COUNT[packaging],
     stock:        printed && raw.stock === 'cardstock' ? 'cardstock' : 'standard',
     removeCredit: printed && !!raw.removeCredit,
     delivery:     'ship',   // online only — every order ships (no pickup)
@@ -173,7 +177,8 @@ export function priceCdOrder(raw, opts = {}) {
   lines.push({ label: 'Disc, burn & printed face', each: P.disc })
   lines.push({ label: PACKAGING_LABELS[c.packaging], each: P.packaging[c.packaging] })
   if (printed) {
-    lines.push({ label: `Front & back covers, ${STOCK_LABELS[c.stock].toLowerCase()}`, each: P.print[c.stock] * P.printsPerCover })
+    const covers = c.packaging === 'jewel' ? 'Front cover & tray card' : 'Front & back covers'
+    lines.push({ label: `${covers}, ${STOCK_LABELS[c.stock].toLowerCase()}`, each: P.print[c.stock] * P.printsPerCover })
     if (c.removeCredit) lines.push({ label: 'No "Printed at Art Saturated" credit', each: P.removeCredit })
   }
 

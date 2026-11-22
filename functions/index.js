@@ -1865,7 +1865,7 @@ function cdSummary(o) {
   return [
     `  Release:   ${o.artistName || '—'} — ${o.albumTitle || '—'}`,
     `  Discs:     ${o.qty} × ${pack}`,
-    o.packaging !== 'sleeve' ? `  Cover:     ${o.panelCount}-panel, ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}` : '',
+    o.packaging !== 'sleeve' ? `  Cover:     ${o.stock === 'cardstock' ? 'cardstock' : 'standard paper'}` : '',
     `  Tracks:    ${(o.trackList || []).length}`,
     `  Delivery:  Shipping${o.shippingService?.service ? ` — ${o.shippingService.carrier} ${o.shippingService.service}` : ''}`,
     `  Turnaround: ${o.rush ? 'RUSH — under 7 days' : 'Standard, 7–14 days'}`,

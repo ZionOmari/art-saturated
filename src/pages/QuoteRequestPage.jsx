@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { checkoutCdOrder } from '../lib/stripe'
 import {
   CD_PRICING, PACKAGING_LABELS, STOCK_LABELS, priceCdOrder, reorderWindow, fmtCents,
-  normalizePromoCode, findPromoByHash, promoProblem,
+  normalizePromoCode, findPromoByHash, promoProblem, PANEL_COUNT,
 } from '../../functions/cdPricing.mjs'
 import { DEFAULT_SPINE, aspectOf, normalizeSpine, sizePx, spineText } from '../../functions/cdSpecs.mjs'
 import { spineTextFits } from '../lib/cdSpine'
@@ -15,6 +15,7 @@ import { CD_TERMS, CD_TERMS_UPDATED } from '../data/cdTerms'
 import CdMockup from '../components/CdMockup'
 import CdCropper from '../components/CdCropper'
 import CdProof from '../components/CdProof'
+import CdPackPicker from '../components/CdPackPicker'
 import Footer from '../components/Footer'
 import Spinner from '../components/Spinner'
 import ShippingRates from '../components/ShippingRates'
@@ -111,7 +112,8 @@ function ArtSlot({ label, preview, onPick, onRemove, aspect = 1, round = false, 
 }
 
 const PANEL_LABELS = {
-  2: ['Front cover', 'Back / inside'],
+  1: ['Front cover'],
+  2: ['Front cover', 'Back cover'],
   4: ['Front cover', 'Inside left', 'Inside right', 'Back of booklet'],
 }
 
@@ -409,7 +411,7 @@ function Reorder({ sourceId }) {
         <h1 className="font-serif text-[2rem] font-normal">{src.artistName} — {src.albumTitle}</h1>
         <p className="font-mono text-[12px] text-warm-gray mt-1">
           {PACKAGING_LABELS[src.packaging]}
-          {src.packaging !== 'sleeve' && ` · ${src.panelCount}-panel · ${STOCK_LABELS[src.stock]}`}
+          {src.packaging !== 'sleeve' && ` · ${STOCK_LABELS[src.stock]}`}
           {' · '}{(src.trackList || []).length} tracks
         </p>
       </div>
@@ -475,8 +477,8 @@ export default function QuoteRequestPage() {
 
   // Order config
   const [packaging,    setPackaging]    = useState('jewel')
+  const panelCount = PANEL_COUNT[packaging]   // set by the case type, not chosen
   const [stock,        setStock]        = useState('standard')
-  const [panelCount,   setPanelCount]   = useState(4)
   const [qty,          setQty]          = useState('25')
   const delivery = 'ship'   // online only — every order ships
   const [removeCredit, setRemoveCredit] = useState(false)
@@ -679,12 +681,6 @@ export default function QuoteRequestPage() {
     ? <PayExisting orderId={payId} />
     : <SignInPrompt from={location.pathname + location.search} text="Sign in to pay for your CD order." />)
 
-  const packagingOptions = [
-    { key: 'jewel',  label: 'Jewel case',  sub: 'Booklet + tray card with spines' },
-    { key: 'slim',   label: 'Slim case',   sub: 'Thin case, front insert only' },
-    { key: 'sleeve', label: 'Disc only',   sub: 'Printed disc in a paper sleeve' },
-  ]
-
   return shell(
     <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-12 pb-24">
       <div className="mb-10">
@@ -704,7 +700,7 @@ export default function QuoteRequestPage() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-10" noValidate>
 
         <Section n={1} title="Packaging">
-          <Choice options={packagingOptions} value={packaging} onChange={setPackaging} />
+          <CdPackPicker value={packaging} onChange={setPackaging} />
         </Section>
 
         {printed && (
@@ -715,12 +711,10 @@ export default function QuoteRequestPage() {
                 { key: 'cardstock', label: STOCK_LABELS.cardstock, sub: `Heavier, sturdier · ${fmtCents(CD_PRICING.print.cardstock)} per print` },
               ]} />
               <p className="font-mono text-[10px] text-warm-gray -mt-2">
-                Every case gets a printed front and back cover ({CD_PRICING.printsPerCover} prints per disc).
+                {packaging === 'jewel'
+                  ? 'Your jewel case gets a printed front cover and a tray card on the back, with your title on the spines'
+                  : 'Your slim case gets a printed front and back cover'} ({CD_PRICING.printsPerCover} prints per disc).
               </p>
-              <Choice value={String(panelCount)} onChange={v => setPanelCount(Number(v))} options={[
-                { key: '2', label: '2-panel', sub: 'Folded card: front + back' },
-                { key: '4', label: '4-panel', sub: 'Booklet: front, inside spread, back' },
-              ]} />
             </div>
           </Section>
         )}
