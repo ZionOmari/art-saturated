@@ -1,5 +1,6 @@
 import { collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { isLiveCategory } from './products'
 
 /** All users who have opted their profile into the public directory */
 export async function getPublicArtists() {
@@ -40,7 +41,7 @@ export async function getArtistsWithWork() {
     )
     snap.docs.forEach(d => {
       const p = { id: d.id, ...d.data() }
-      if (!p.active || p.inBucket) return
+      if (!p.active || p.inBucket || !isLiveCategory(p)) return
       const uid = p.artistUid
       if (!prodByUid[uid]) prodByUid[uid] = []
       const imgArr = Array.isArray(p.imageURLs) ? p.imageURLs

@@ -6,6 +6,14 @@
 
 export const products = []
 
+// What the public shop shows right now (owner, Nov 2026: art only for now).
+// Other categories stay in Firestore and the admin, hidden everywhere public:
+// shop, home page, artist pages, product pages and the sitemap. To bring
+// records back, add 'Physical Media' here.
+export const LIVE_CATEGORIES = ['Art']
+
+export const isLiveCategory = (product) => LIVE_CATEGORIES.includes(normalizeCategory(product?.category))
+
 /** All filterable category labels, including the catch-all */
 export const CATEGORIES = ['Art', 'Get On The Flora', 'Vintage Tech', 'Physical Media', 'Clothing']
 

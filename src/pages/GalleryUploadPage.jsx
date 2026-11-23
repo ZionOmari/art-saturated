@@ -16,10 +16,10 @@ const newPiece = (photos = []) => ({
 // What a seller can list. `kind` decides which fields the card asks for and
 // which shop category the submission is approved into: clothing has its own
 // category, sculpture rides along in Art and is filtered by listingType.
+// Art only for now (owner, Nov 2026). Sculpture and clothing still work
+// below — add them back here to reopen them.
 const KINDS = [
   { key: 'art',       label: 'Art' },
-  { key: 'sculpture', label: 'Sculpture' },
-  { key: 'clothing',  label: 'Clothing' },
 ]
 const GARMENT_TYPES = ['Tops', 'Bottoms', 'Accessories', 'Custom / One of One']
 const GARMENT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size']
@@ -234,12 +234,12 @@ export default function GalleryUploadPage() {
             Upload your work.
           </h1>
           <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-8">
-            $7.99 a month. List as much as you like — art, sculpture, clothing —
+            $7.99 a month. List as much art as you like —
             with no per-listing fee and no commission on what sells.
           </p>
           <ul className="font-mono text-[13px] text-warm-gray leading-relaxed mb-10" style={{ listStyle: 'none', padding: 0 }}>
             {[
-              'Unlimited listings — art, sculpture, clothing',
+              'Unlimited art listings',
               'You keep the full sale price. No commission',
               'Listings go live in the shop straight away',
               'A public profile page you can share',
@@ -306,7 +306,7 @@ export default function GalleryUploadPage() {
           List your work.
         </h1>
         <p className="font-mono text-[13px] text-warm-gray leading-relaxed mb-8 max-w-xl">
-          Art, sculpture or clothing. Add photos and each one becomes its own
+          Your art. Add photos and each one becomes its own
           listing — more than one photo of the same piece? Drag the extras onto
           that card and they'll join it. Everything goes live in the shop as soon
           as you list it, at the price you set, with no commission taken.
@@ -443,7 +443,7 @@ export default function GalleryUploadPage() {
 
                   {/* What kind of thing this is — decides the fields below and
                       where it lands in the shop. */}
-                  <div className="flex flex-wrap gap-1.5">
+                  {KINDS.length > 1 && <div className="flex flex-wrap gap-1.5">
                     {KINDS.map(k => (
                       <button
                         key={k.key}
@@ -455,7 +455,7 @@ export default function GalleryUploadPage() {
                         {k.label}
                       </button>
                     ))}
-                  </div>
+                  </div>}
 
                   <input
                     style={{ ...input, fontSize: 13 }} value={piece.title} placeholder="Title"

@@ -7,7 +7,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import Footer from '../components/Footer'
 import { formatItemNumber } from '../data/storage'
-import { normalizeProduct } from '../data/products'
+import { normalizeProduct, isLiveCategory } from '../data/products'
 import { fetchReviews, addReview, calcAverageRating } from '../data/reviews'
 import { setPageMeta, resetPageMeta } from '../lib/meta'
 import TreeOfLifeConfigurator from '../components/TreeOfLifeConfigurator'
@@ -371,7 +371,7 @@ export default function ProductPage() {
   const stockNum   = (product.stock != null && product.stock !== '') ? Number(product.stock) : null
   // Hidden by the artist, taken down, or parked: reachable by link but not for
   // sale. Checkout refuses these server-side too; this just says so up front.
-  const unlisted   = product.active === false || !!product.inBucket || product.moderation === 'removed'
+  const unlisted   = product.active === false || !!product.inBucket || product.moderation === 'removed' || !isLiveCategory(product)
   const outOfStock = unlisted || (stockNum !== null && stockNum <= 0)
   const lowStock   = stockNum !== null && stockNum > 0 && stockNum <= 5
 

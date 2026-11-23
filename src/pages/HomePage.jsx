@@ -5,6 +5,7 @@ import Walkthrough from '../components/Walkthrough'
 import ArtCarousel from '../components/ArtCarousel'
 import FloatingProductColumn from '../components/FloatingProductColumn'
 import { fetchAllProducts } from '../data/storage'
+import { isLiveCategory } from '../data/products'
 
 function shuffle(arr) {
   const a = [...arr]
@@ -52,7 +53,8 @@ export default function HomePage() {
   const [randomProducts, setRandomProducts] = useState([])
 
   useEffect(() => {
-    fetchAllProducts().then(all => {
+    fetchAllProducts().then(everything => {
+      const all = everything.filter(isLiveCategory)
       const active = all.filter(p => p.active !== false && !p.inBucket && p.category !== 'Mystery')
       setLocalLegends(active.filter(p => p.localLegend).slice(0, 8))
       setRandomProducts(shuffle(active.filter(p => !p.localLegend)).slice(0, 8))

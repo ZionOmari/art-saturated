@@ -984,7 +984,7 @@ function Profile() {
               <p style={{ fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgb(var(--color-ink))', margin: 0 }}>List Your Work</p>
             </div>
             <p style={{ fontFamily: 'monospace', fontSize: '13px', color: 'rgb(var(--color-ink))', marginBottom: '20px', lineHeight: '1.75' }}>
-              List original work, prints, sculpture or clothing in the shop. Listings go live as soon as you upload them.
+              List your original work and prints in the shop. Listings go live as soon as you upload them.
             </p>
 
             <div style={{ border: '1px solid #e8e0d4', padding: '20px', marginBottom: '24px', background: 'rgb(var(--color-paper))' }}>

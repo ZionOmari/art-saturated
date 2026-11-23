@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { isLiveCategory } from '../src/data/products.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ORIGIN = 'https://artsaturated.com'
@@ -75,7 +76,7 @@ async function main() {
       const prodSnap = await getDocs(collection(db, 'products'))
       prodSnap.forEach(d => {
         const p = d.data()
-        if (p.active === false || p.inBucket || p.inCollection || !p.slug) return
+        if (p.active === false || p.inBucket || p.inCollection || !p.slug || !isLiveCategory(p)) return
         urls.push(urlTag(`/shop/${p.slug}`, '0.7', 'weekly'))
       })
     })

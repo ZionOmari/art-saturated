@@ -4,6 +4,7 @@ import { addDoc, collection, getDocs, query, where, serverTimestamp } from 'fire
 import { db } from '../lib/firebase'
 import { getArtistProfile, getArtistBySlug } from '../data/artists'
 import { getPublishedPosts } from '../data/blogPosts'
+import { isLiveCategory } from '../data/products'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
 import { useToast } from '../hooks/useToast'
@@ -97,7 +98,7 @@ export default function ArtistProfilePage() {
               source: p.source || '', sold: p.sold || false, productData: p,
             }
           })
-          .filter(p => p.active)
+          .filter(p => p.active && isLiveCategory(p.productData))
           .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))
 
         setArtist(prof)

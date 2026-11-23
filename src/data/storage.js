@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, listAll, getMetadata } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
-import { normalizeProduct } from './products'
+import { normalizeProduct, isLiveCategory } from './products'
 
 // ── Draft helpers (localStorage, never stores image data) ────────────────────
 const DRAFT_KEY = 'admin_product_draft'
@@ -55,7 +55,7 @@ export async function fetchAllProducts() {
 // Shop-facing fetch — only active, non-bucket, non-mystery products
 export async function fetchShopProducts() {
   const all = await fetchAllProducts()
-  return all.filter(p => p.active !== false && !p.inBucket && p.category !== 'Mystery')
+  return all.filter(p => p.active !== false && !p.inBucket && isLiveCategory(p))
 }
 
 // Most recent active Art products — for the home page slideshow.
